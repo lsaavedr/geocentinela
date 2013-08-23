@@ -5,16 +5,24 @@
 
     <NumberPicker
         android:id="@+id/np"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
+        android:layout_width="match_parent"
+        android:layout_height="150dip"
         android:width="100dip" />
 
     <Button
         android:id="@+id/ok"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_alignParentLeft="true"
+        android:layout_alignParentRight="true"
         android:layout_below="@+id/np"
         android:text="ok" />
+
+    <Button
+        android:id="@+id/cancel"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_below="@+id/np"
+        android:layout_toLeftOf="@+id/ok"
+        android:text="Cancel" />
 
 </RelativeLayout>

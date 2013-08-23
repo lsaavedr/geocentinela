@@ -37,12 +37,11 @@
 
     <TextView
         android:id="@+id/nch"
-        android:layout_width="wrap_content"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_alignTop="@+id/textView1"
         android:layout_toRightOf="@+id/refresh"
-        android:ems="10"
-        android:text="3" />
+        android:ems="10" />
 
     <TextView
         android:id="@+id/textView2"
@@ -51,16 +50,15 @@
         android:layout_alignParentLeft="true"
         android:layout_below="@+id/textView1"
         android:layout_marginTop="10dp"
-        android:text="SPS:" />
+        android:text="kSPS:" />
 
     <TextView
         android:id="@+id/sps"
-        android:layout_width="wrap_content"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_alignTop="@+id/textView2"
         android:layout_toRightOf="@+id/refresh"
-        android:ems="10"
-        android:text="8000" />
+        android:ems="10" />
 
     <TextView
         android:id="@+id/textView3"
@@ -69,16 +67,138 @@
         android:layout_alignParentLeft="true"
         android:layout_below="@+id/textView2"
         android:layout_marginTop="10dp"
-        android:text="Time Logged:" />
+        android:text="Hardware Average:" />
 
     <TextView
-        android:id="@+id/dtime"
-        android:layout_width="wrap_content"
+        android:id="@+id/haverage"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_alignTop="@+id/textView3"
         android:layout_toRightOf="@+id/refresh"
-        android:ems="10"
-        android:text="20000" />
+        android:ems="10" />
+
+    <TextView
+        android:id="@+id/textView4"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentLeft="true"
+        android:layout_below="@+id/textView3"
+        android:layout_marginTop="10dp"
+        android:text="Time Logged [s]:" />
+
+    <TextView
+        android:id="@+id/dtime"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_alignTop="@+id/textView4"
+        android:layout_toRightOf="@+id/refresh"
+        android:ems="10" />
+
+    <CheckBox
+        android:id="@+id/chrono"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentLeft="true"
+        android:layout_below="@+id/textView4"
+        android:text="Chronometer" />
+
+    <RelativeLayout
+        android:id="@+id/chrono_layout"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentLeft="true"
+        android:layout_below="@+id/chrono" >
+
+        <TextView
+            android:id="@+id/textView5"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentLeft="true"
+            android:layout_alignParentTop="true"
+            android:layout_marginLeft="50dp"
+            android:text="Delay" />
+
+        <TextView
+            android:id="@+id/delay"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentLeft="true"
+            android:layout_below="@+id/textView5"
+            android:layout_marginLeft="50dp"
+            android:text="Time in (H:M:S)" />
+
+        <TextView
+            android:id="@+id/textView6"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentRight="true"
+            android:layout_alignParentTop="true"
+            android:layout_marginRight="50dp"
+            android:text="Lapse" />
+
+        <TextView
+            android:id="@+id/lapse"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentRight="true"
+            android:layout_below="@+id/textView6"
+            android:layout_marginRight="50dp"
+            android:text="Time in (H:M:S)" />
+
+    </RelativeLayout>
+
+    <CheckBox
+        android:id="@+id/daily"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentLeft="true"
+        android:layout_below="@+id/chrono_layout"
+        android:text="Daily" />
+
+    <RelativeLayout
+        android:id="@+id/daily_layout"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentLeft="true"
+        android:layout_below="@+id/daily" >
+
+        <TextView
+            android:id="@+id/textView7"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentLeft="true"
+            android:layout_alignParentTop="true"
+            android:layout_marginLeft="50dp"
+            android:text="Begin" />
+
+        <TextView
+            android:id="@+id/begin"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentLeft="true"
+            android:layout_below="@+id/textView7"
+            android:layout_marginLeft="50dp"
+            android:text="Time in (H:M)" />
+
+        <TextView
+            android:id="@+id/textView8"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentRight="true"
+            android:layout_alignParentTop="true"
+            android:layout_marginRight="50dp"
+            android:text="End" />
+
+        <TextView
+            android:id="@+id/end"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentRight="true"
+            android:layout_below="@+id/textView8"
+            android:layout_marginRight="50dp"
+            android:text="Time in (H:M)" />
+
+    </RelativeLayout>
 
     <TextView
         android:id="@+id/log"

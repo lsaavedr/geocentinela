@@ -31,15 +31,16 @@ class CentCFG {
 public:
   static const uint8_t channel2sc1a[MAX_NCH]; // = { 5, 14, 8, 9, 13, 12, 6, 7, 15, 4 };
 
-  uint16_t adc_buffer_size = 1024; // 1024*2
-  uint16_t adc_buffer_hash = adc_buffer_size - 1;
-  uint16_t adc_buffer_size_bytes = adc_buffer_size * sizeof(uint16_t);
   uint8_t nch = 3;
+  uint8_t average = 2; //  0->4, 1->8, 2->16, 3->32
   uint32_t tick_time_usec = 125; // 8ksps
-  uint16_t sd_buffer_size = 2048; //2560; // 2560*2
-  uint16_t sd_buffer_size_bytes = sd_buffer_size * sizeof(uint16_t);
-
   uint32_t time_max_msec = 20000;
+
+  uint16_t adc_buffer_size = 1024; // 1024*2
+  uint16_t adc_buffer_size_bytes = adc_buffer_size * sizeof(uint16_t);
+  uint16_t adc_buffer_hash = adc_buffer_size - 1;
+  uint16_t sd_buffer_size = 2048; // 2048*2
+  uint16_t sd_buffer_size_bytes = sd_buffer_size * sizeof(uint16_t);
 
   CentCFG(const char* file_name, void (*log)(const char*)) {
     strcpy_P(this->file_name, file_name);
@@ -57,6 +58,26 @@ public:
     this->adc_buffer_size_bytes = adc_buffer_size * sizeof(uint16_t);
   }
 
+  void set_average(uint8_t average) {
+    switch (average) {
+    case 4:
+      this->average = 0;
+      break;
+    case 8:
+      this->average = 1;
+      break;
+    case 16:
+      this->average = 2;
+      break;
+    case 32:
+      this->average = 3;
+      break;
+    default:
+      this->average = 4;
+      break;
+    }
+  }
+
   void set_nch(uint8_t nch)
   {
     if (0 < nch && nch < MAX_NCH) this->nch = nch;
@@ -67,15 +88,15 @@ public:
     if (tick_time_usec >= MIN_TICK_TIME_USEC) this->tick_time_usec = tick_time_usec;
   }
 
+  void set_time_max_msec(uint32_t time_max_msec)
+  {
+    this->time_max_msec = time_max_msec;
+  }
+
   void set_sd_buffer_size(uint16_t sd_buffer_size)
   {
     this->sd_buffer_size = sd_buffer_size;
     this->sd_buffer_size_bytes = sd_buffer_size * sizeof(uint16_t);
-  }
-
-  void set_time_max_msec(uint32_t time_max_msec)
-  {
-    this->time_max_msec = time_max_msec;
   }
 
 private:

@@ -12,6 +12,7 @@ import java.util.Vector;
 import android.app.Activity;
 import android.graphics.Color;
 import android.os.Bundle;
+import android.util.Log;
 
 import com.androidplot.series.XYSeries;
 import com.androidplot.xy.LineAndPointFormatter;
@@ -20,6 +21,8 @@ import com.androidplot.xy.XYStepMode;
 
 public class GraphActivity extends Activity
 {
+	private static final String TAG = "GraphActivity";
+
 	private String filename;
 	private MultitouchPlot mySimpleXYPlot;
 	private static int BUFFER_SIZE = 6000;
@@ -30,12 +33,13 @@ public class GraphActivity extends Activity
 
 	private int nch = 3;
 
-	private double Tcte = 0.000125;
+	private double Tcte = 0.125;
 	private double Tmin = 0;
 	private double Tmax = 20000;
 
-	private long denominator = 50;
-	private long cntTime = 0;
+	private long denominator = 1;
+	private long nmax = 2500;
+	private double cntTime = 0;
 
 	@Override
 	protected void onCreate(Bundle savedInstanceState)
@@ -45,12 +49,6 @@ public class GraphActivity extends Activity
 		this.filename = getIntent().getStringExtra("filename");
 		File file = new File(this.filename);
 
-		/*
-		numbers0 = new Vector<Number>();
-		numbers1 = new Vector<Number>();
-		numbers2 = new Vector<Number>();
-		*/
-
 		DataInputStream dis;
 		try {
 			dis = new DataInputStream(new FileInputStream(file));
@@ -59,7 +57,8 @@ public class GraphActivity extends Activity
 
 			int nread = dis.read(head);
 			if (nread == 13) {
-				nch = (head[0] & 0xff);
+				nch = ((head[0] & 0xff) >> 4) & 0xf;
+				if (nch==0) nch = head[0] & 0xff;
 
 				long tick_time_usec = 0;
 				long time_max_msec = 0;
@@ -70,8 +69,18 @@ public class GraphActivity extends Activity
 					rtc_time = (rtc_time << 8) + (head[12-i] & 0xff);
 				}
 
-				Tcte = tick_time_usec/1000000.0;
-				Tmax = time_max_msec;
+				Tcte = tick_time_usec/1000.0;
+
+				if (time_max_msec < Tmax) Tmax = time_max_msec;
+
+				denominator = (long)((Tmax-Tmin)/(Tcte*nmax));
+				if (denominator < 1) denominator = 1;
+				Log.v(TAG, "nch:"+nch);
+				Log.v(TAG, "denominator:"+denominator);
+				Log.v(TAG, "Tcte:"+Tcte);
+				Log.v(TAG, "Tmax:"+Tmax);
+				Log.v(TAG, "Tmin:"+Tmin);
+				Log.v(TAG, "n:"+(long)((Tmax-Tmin)/(Tcte*denominator)));
 			}
 
 			numbers = (List<Number>[])new List[nch];
@@ -80,29 +89,28 @@ public class GraphActivity extends Activity
 			int[] sample = new int[nch];
 			double[] sumSample = new double[nch];
 
-			int counterSamples = 0;
+			long counterSamples = 1;
 
-			while ((nread = dis.read(buf)) >= 0 && cntTime < Tmax) {
+			while ((nread = dis.read(buf)) >= 0 && cntTime <= Tmax) {
 				for (int i = 0; i < nread; i += 2*nch) {
-					counterSamples++;
+					if (counterSamples >= denominator) {
+						cntTime += Tcte*denominator;
+						if (cntTime > Tmax) break;
+						counterSamples = 0;
+					}
 
 					for (int j = 0; j < nch; j++) {
 						sample[j] = ((buf[i + 2*j + 1] & 0xff) << 8) + (buf[i + 2*j] & 0xff);
 						sumSample[j] += Vcte*sample[j]-Voffset;
 
-						if (counterSamples >= denominator) {
-							sumSample[j] /= counterSamples;
-							numbers[j].add(sumSample[j]);
-
+						if (counterSamples == 0) {
+							sumSample[j] /= denominator;
+							if (cntTime >= Tmin) numbers[j].add(sumSample[j]);
 							sumSample[j] = 0;
 						}
 					}
 
-					if (counterSamples >= denominator) {
-						counterSamples = 0;
-						cntTime += Tcte*denominator;
-						if (cntTime > Tmax) break;
-					}
+					counterSamples++;
 				}
 			}
 			dis.close();
@@ -145,11 +153,11 @@ public class GraphActivity extends Activity
 		mySimpleXYPlot.setRangeLabel("mV");
 		mySimpleXYPlot.setDomainLabel("s");
 
-		mySimpleXYPlot.setDomainStep(XYStepMode.INCREMENT_BY_VAL, denominator);
+		mySimpleXYPlot.setDomainStep(XYStepMode.INCREMENT_BY_VAL, (Tmax-Tmin)/(10*Tcte*denominator));
 		mySimpleXYPlot.setDomainValueFormat(new NumberFormat() {
 			@Override
             public StringBuffer format(double d, StringBuffer sb, FieldPosition fp) {
-                return sb.append(String.format("%,2.3f", d * Tcte * denominator)); // shortcut to convert d+1 into a String
+                return sb.append(String.format("%,2.3f", (Tmin + d * Tcte * denominator)/1000.0)); // shortcut to convert d+1 into a String
             }
 
             // unused

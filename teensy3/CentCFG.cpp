@@ -21,25 +21,26 @@
 
 #include "CentCFG.h"
 
-const uint8_t CentCFG::channel2sc1a[MAX_NCH] = { 5, 14, 8, 9, 13, 12, 6, 7, 15, 4 };
+//const uint8_t CentCFG::channel2sc1a[MAX_NCH] = { 5, 14, 8, 9, 13, 12, 6, 7, 15, 4 };
+const uint8_t CentCFG::channel2sc1a[MAX_NCH] = { 5, 14, 8, 9, 13, 12, 15, 6, 7, 4 };
 
 bool CentCFG::write()
 {
   if (file_cfg.open(file_name, O_CREAT | O_TRUNC | O_WRITE)) {
-    // write uint16_t adc_buffer_size:
-    file_cfg.write((uint8_t*)&adc_buffer_size, sizeof(uint16_t));
-
-    // write uint8_t nch:
-    file_cfg.write(nch);
+    // write uint8_t (nch << 4) | average:
+    file_cfg.write((nch << 4) | average);
 
     // write uint32_t tick_time_usec:
     file_cfg.write((uint8_t*)&tick_time_usec, sizeof(uint32_t));
 
-    // write uint16_t sd_buffer_size:
-    file_cfg.write((uint8_t*)&sd_buffer_size, sizeof(uint16_t));
-
     // write uint32_t time_max_msec:
     file_cfg.write((uint8_t*)&time_max_msec, sizeof(uint32_t));
+
+    // write uint16_t adc_buffer_size:
+    file_cfg.write((uint8_t*)&adc_buffer_size, sizeof(uint16_t));
+
+    // write uint16_t sd_buffer_size:
+    file_cfg.write((uint8_t*)&sd_buffer_size, sizeof(uint16_t));
 
     if (!file_cfg.close()) {
       log(PSTR("CentCFG: file close error"));
@@ -57,16 +58,6 @@ bool CentCFG::write()
 bool CentCFG::read()
 {
   if (file_cfg.open(file_name, O_READ)) {
-    // read uint16_t adc_buffer_size:
-    if (file_cfg.read(&adc_buffer_size, 2) != 2) {
-      log(PSTR("CentCFG: adc_buffer_size"));
-      if (!file_cfg.close()) {
-        log(PSTR("CentCFG: file close error"));
-        log(file_name);
-      }
-      return false;
-    }
-
     // read uint8_t nch:
     if (file_cfg.read(&nch, 1) != 1) {
       log(PSTR("CentCFG: nch"));
@@ -75,6 +66,9 @@ bool CentCFG::read()
         log(file_name);
       }
       return false;
+    } else {
+      average = nch & 0xf;
+      nch = nch >> 4;
     }
 
     // read uint32_t tick_time_usec:
@@ -87,9 +81,9 @@ bool CentCFG::read()
       return false;
     }
 
-    // read uint16_t sd_buffer_size:
-    if (file_cfg.read(&sd_buffer_size, 2) != 2) {
-      log(PSTR("CentCFG: sd_buffer_size"));
+    // read uint32_t time_max_msec:
+    if (file_cfg.read(&time_max_msec, 4) != 4) {
+      log(PSTR("CentCFG: time_max_msec"));
       if (!file_cfg.close()) {
         log(PSTR("CentCFG: file close error"));
         log(file_name);
@@ -97,9 +91,19 @@ bool CentCFG::read()
       return false;
     }
 
-    // read uint32_t time_max_msec:
-    if (file_cfg.read(&time_max_msec, 4) != 4) {
-      log(PSTR("CentCFG: time_max_msec"));
+    // read uint16_t adc_buffer_size:
+    if (file_cfg.read(&adc_buffer_size, 2) != 2) {
+      log(PSTR("CentCFG: adc_buffer_size"));
+      if (!file_cfg.close()) {
+        log(PSTR("CentCFG: file close error"));
+        log(file_name);
+      }
+      return false;
+    }
+
+    // read uint16_t sd_buffer_size:
+    if (file_cfg.read(&sd_buffer_size, 2) != 2) {
+      log(PSTR("CentCFG: sd_buffer_size"));
       if (!file_cfg.close()) {
         log(PSTR("CentCFG: file close error"));
         log(file_name);
@@ -124,11 +128,12 @@ bool CentCFG::read()
 void CentCFG::print()
 {
   Serial.print(PSTR("file_name:")); Serial.println(file_name);
-  Serial.print(PSTR("adc_buffer_size:")); Serial.println(adc_buffer_size);
   Serial.print(PSTR("nch:")); Serial.println(nch);
+  Serial.print(PSTR("average:")); Serial.println(average);
   Serial.print(PSTR("tick_time_usec:")); Serial.println(tick_time_usec);
-  Serial.print(PSTR("sd_buffer_size:")); Serial.println(sd_buffer_size);
   Serial.print(PSTR("time_max_msec:")); Serial.println(time_max_msec);
+  Serial.print(PSTR("adc_buffer_size:")); Serial.println(adc_buffer_size);
+  Serial.print(PSTR("sd_buffer_size:")); Serial.println(sd_buffer_size);
   Serial.print(PSTR("F_BUS:")); Serial.println(F_BUS);
   Serial.println();
 }

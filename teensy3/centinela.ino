@@ -73,26 +73,37 @@ void adc_cfg()
   // general configuration
   ADC0_CFG1 = 0
     | ADC_CFG1_ADLPC // lower power: off, on
-    | ADC_CFG1_ADIV(2) // clock divide: 1, 2, 4, 8
+    | ADC_CFG1_ADIV(1) // clock divide: 1, 2, 4, 8
     //| ADC_CFG1_ADLSMP // sample time: short, long
     | ADC_CFG1_MODE(3)  // conversion mode: 8, 12, 10, 16
-    | ADC_CFG1_ADICLK(1); // input clock: bus, bus/2, alternate, asynchronous
+#if F_BUS == 24000000
+    | ADC_CFG1_ADICLK(0) // input clock: bus, bus/2, alternate, asynchronous
+#elif F_BUS == 48000000
+    | ADC_CFG1_ADICLK(1) // input clock: bus, bus/2, alternate, asynchronous
+#endif
+  ;
 
   ADC0_CFG2 = 0 // asynchronous clock output disable
     | ADC_CFG2_MUXSEL // adc mux (see pag. 96): ADxxa, ADxxb
     //| ADC_CG2_ADACKEN // asynchronous clock output: disable, enable
     | ADC_CFG2_ADHSC // high speed configuration: normal, high
-    | ADC_CFG2_ADLSTS(0); // long sample time: 20ext, 12ext, 6ext, 2ext
+    | ADC_CFG2_ADLSTS(0) // long sample time: 20ext, 12ext, 6ext, 2ext
+  ;
 
   // control
   ADC0_SC2 = 0 // software trigger, compare disabled
     | ADC_SC2_DMAEN // DMA enable
-    | ADC_SC2_REFSEL(0); // 0-> 3.3v, 1->1.2v
-
-  ADC0_SC3 = 0 // continuous conversion disable
-    //| ADC_SC3_AVGE // enable hardware average
-    //| ADC_SC3_AVGS(1); // average select: 0->4, 1->8, 2->16, 3->32
+    | ADC_SC2_REFSEL(1) // 0-> 3.3v, 1->1.2v
   ;
+
+  if (cent_cfg.average < 4) {
+    ADC0_SC3 = 0 // continuous conversion disable
+      | ADC_SC3_AVGE // enable hardware average
+      | ADC_SC3_AVGS(cent_cfg.average) // average select: 0->4, 1->8, 2->16, 3->32
+    ;
+  } else {
+    ADC0_SC3 = 0; // continuous conversion disable, hardware average disable
+  }
 
   // calibration
   ADC0_SC3 |= ADC_SC3_CAL; // begin cal
@@ -105,6 +116,9 @@ void adc_cfg()
 
   cal_sum = (ADC0_CLMS + ADC0_CLM4 + ADC0_CLM3 + ADC0_CLM2 + ADC0_CLM1 + ADC0_CLM0)/2;
   ADC0_MG = cal_sum | 0x8000;
+
+  // Stop conversion
+  ADC0_SC1A = ADC_SC1_ADCH(0b11111);
 
   cen_st |= CEN_ST_ADC;
 }
@@ -122,7 +136,7 @@ void dma_cfg()
   DMAMUX0_CHCFG1 = DMAMUX_ENABLE | DMAMUX_SOURCE_ADC0;
 
   // channels priority
-  DMA_CR |= DMA_CR_ERCA; // enable round robin scheduling
+  //DMA_CR |= DMA_CR_ERCA; // enable round robin scheduling
   //DMA_DCHPRI0 = 0;
   //DMA_DCHPRI1 = 1;
   //DMA_DCHPRI2 = 2;
@@ -293,8 +307,8 @@ bool file_cfg()
     centinela_printlog(PSTR("log:file open failed"));
     return false;
   } else {
-    // write uint8_t nch:
-    file.write(cent_cfg.nch);
+    // write uint8_t ((nch << 4)| average):
+    file.write((cent_cfg.nch << 4) | cent_cfg.average);
 
     // write uint32_t tick_time_usec:
     file.write((uint8_t*)&cent_cfg.tick_time_usec, sizeof(uint32_t));
@@ -307,6 +321,9 @@ void timer_callback() {
   delta += cent_cfg.nch;
   if (delta >= cent_cfg.adc_buffer_size) {
     centinela_printlog(PSTR("error: overwrite!"));
+  }
+  if (ADC0_SC1A != adc_config[cent_cfg.nch]) {
+    centinela_printlog(PSTR("error: restart!"));
   }
 
   DMA_TCD2_SADDR = &(adc_config[1]);
@@ -340,8 +357,8 @@ bool centinela_start()
 
     // write uint32_t rtc_time_sec:
     uint32_t rtc_time = time;
-    sd_buffer[0] = ((uint16_t*)&rtc_time)[0];
-    sd_buffer[1] = ((uint16_t*)&rtc_time)[1];
+    sd_buffer[2] = ((uint16_t*)&rtc_time)[0];
+    sd_buffer[3] = ((uint16_t*)&rtc_time)[1];
     sd_head += 2;
 
     cen_st |= CEN_ST_RUN;
@@ -358,7 +375,16 @@ bool centinela_stop()
 
   // stop timer
   timer.end();
-  while (ADC0_SC1A != adc_config[cent_cfg.nch]);
+  while (ADC0_SC1A != adc_config[cent_cfg.nch]) {
+    centinela_printlog(PSTR("warning:stop: waiting for the ADC!"));
+    /*Serial.print("ADC0_SC1A:");
+    Serial.println(ADC0_SC1A);
+    Serial.print("cent_cfg.nch:");
+    Serial.println(cent_cfg.nch);
+    Serial.print("adc_config:");
+    Serial.println(adc_config[cent_cfg.nch]);*/
+    delay(1000);
+  }
 
   cen_st &= ~CEN_ST_RUN;
 
@@ -408,12 +434,19 @@ bool centinela_ls()
   return true;
 }
 
+//uint32_t tic = 0;
+//uint32_t toc = 0;
+
 void loop()
 {
+  //if (cen_st & CEN_ST_RUN) toc = micros();
   while (cen_st & CEN_ST_RUN) {
     while (delta > cent_cfg.nch) {
       if (sd_head == cent_cfg.sd_buffer_size) {
+        //tic = micros();
         file.write(sd_buffer, cent_cfg.sd_buffer_size_bytes);
+        //Serial.println((uint32_t)(tic-toc));
+        //toc = micros();
         sd_head = 0;
       }
 
@@ -509,7 +542,7 @@ void loop()
           switch (cmd) {
           case 'g': {
             uint8_t settings[14] = { 's',
-                                     cent_cfg.nch,
+                                     (cent_cfg.nch << 4) | cent_cfg.average,
                                      ((uint8_t*)&cent_cfg.tick_time_usec)[0],
                                      ((uint8_t*)&cent_cfg.tick_time_usec)[1],
                                      ((uint8_t*)&cent_cfg.tick_time_usec)[2],
@@ -529,19 +562,26 @@ void loop()
             centinela_printlog("Config:");
             cent_cfg.print();
             break;
-          case 'a':
-            if (length > 2) {
-              uint16_t adc_buffer_size;
-              ((uint8_t*)&adc_buffer_size)[0] = Serial.read();
-              ((uint8_t*)&adc_buffer_size)[1] = Serial.read();
-              cent_cfg.set_adc_buffer_size(adc_buffer_size);
-              write_cfg = true;
-            }
-            break;
           case 'n':
             if (length > 1) {
               cmd = Serial.read();
               cent_cfg.set_nch(cmd);
+
+              // configure adc
+              adc_cfg();
+
+              // reallocate adc_config
+              if (adc_config) { free(adc_config); adc_config = NULL; }
+              size_t size = (1+cent_cfg.nch) * sizeof(uint32_t);
+              adc_config = (uint32_t*) malloc(size);
+
+              write_cfg = true;
+            }
+            break;
+          case 'm':
+            if (length > 1) {
+              cmd = Serial.read();
+              cent_cfg.set_average(cmd);
               write_cfg = true;
             }
             break;
@@ -556,15 +596,6 @@ void loop()
               write_cfg = true;
             }
             break;
-          case 'b':
-            if (length > 2) {
-              uint16_t sd_buffer_size;
-              ((uint8_t*)&sd_buffer_size)[0] = Serial.read();
-              ((uint8_t*)&sd_buffer_size)[1] = Serial.read();
-              cent_cfg.set_sd_buffer_size(sd_buffer_size);
-              write_cfg = true;
-            }
-            break;
           case 't':
             if (length > 4) {
               uint32_t time_max_msec;
@@ -576,11 +607,37 @@ void loop()
               write_cfg = true;
             }
             break;
+          case 'a':
+            if (length > 2) {
+              uint16_t adc_buffer_size;
+              ((uint8_t*)&adc_buffer_size)[0] = Serial.read();
+              ((uint8_t*)&adc_buffer_size)[1] = Serial.read();
+              cent_cfg.set_adc_buffer_size(adc_buffer_size);
+              write_cfg = true;
+            }
+            break;
+          case 'b':
+            if (length > 2) {
+              uint16_t sd_buffer_size;
+              ((uint8_t*)&sd_buffer_size)[0] = Serial.read();
+              ((uint8_t*)&sd_buffer_size)[1] = Serial.read();
+              cent_cfg.set_sd_buffer_size(sd_buffer_size);
+              write_cfg = true;
+            }
+            break;
           default:
             centinela_printlog(PSTR("bad set!"));
           }
 
-          if (write_cfg) cent_cfg.write();
+          if (write_cfg) {
+            cent_cfg.write();
+
+            // reconfigure ADC
+            adc_rcfg();
+
+            // reconfigure DMA
+            dma_rcfg();
+          }
         }
         break;
       default:

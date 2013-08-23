@@ -22,7 +22,7 @@
             android:name="cl.timining.centinela.MainActivityCentinela"
             android:configChanges="orientation"
             android:label="@string/app_name"
-            android:screenOrientation="landscape" >
+            android:screenOrientation="portrait" >
 
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -50,7 +50,7 @@
             android:name="cl.timining.centinela.SettingsActivity"
             android:configChanges="orientation"
             android:label="@string/title_activity_settings"
-            android:screenOrientation="landscape" >
+            android:screenOrientation="portrait" >
         </activity>
     </application>
 </manifest>

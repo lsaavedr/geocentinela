@@ -62,17 +62,6 @@ public class MainActivityCentinela extends Activity {
 	static public int timeout = 1000;
 	static public int log_cmd = 0;
 
-	/*@Override
-	protected void onStart() {
-		// TODO Auto-generated method stub
-		super.onStart();
-		
-		Intent intent = new Intent(this, GraphActivity.class);
-        intent.putExtra("filename", dir + "/" + "CENT000.BIN");
-        
-    	startActivity(intent);
-	}*/
-	
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
@@ -182,13 +171,8 @@ public class MainActivityCentinela extends Activity {
     public boolean onOptionsItemSelected(MenuItem item) {
         switch (item.getItemId()) {
         case (R.id.action_settings):
-            Intent settings = new Intent(this, SettingsActivity.class);
-        /*
-            settings.putExtra("url", dbHelper.getURL());
-            settings.putExtra("auth", dbHelper.getAuth());
-            settings.putExtra("username", dbHelper.getUsername());
-            settings.putExtra("password", dbHelper.getPassword());*/
-            startActivityForResult(settings, 0);
+    		Intent settings = new Intent(this, SettingsActivity.class);
+        	startActivityForResult(settings, 0);
             return true;
         }
         return super.onOptionsItemSelected(item);
@@ -215,7 +199,10 @@ public class MainActivityCentinela extends Activity {
 
 	private void sendCmd(byte[] cmd) {
 		Log.v(TAG, "device:"+device+":cmd:"+new String(cmd));
-		if (device == null) return;
+		if (device == null) {
+			log.setText("No serial device.");
+			return;
+		}
 
 		try {
 			device.write(cmd, timeout);
@@ -257,12 +244,12 @@ public class MainActivityCentinela extends Activity {
 				processSubData(context, subData);
 			}
 
-			if (data[end+head_length] == (byte)116) log_cmd = 1;
-			if (data[end+head_length] == (byte)108) log_cmd = 2;
-			if (data[end+head_length] == (byte)102) log_cmd = 3;
-			if (data[end+head_length] == (byte)103) log_cmd = 4;
-			if (data[end+head_length] == (byte)101) log_cmd = 5;
-			if (data[end+head_length] == (byte)115) log_cmd = 6;
+			if (data[end+head_length] == (byte)'t') log_cmd = 1;
+			if (data[end+head_length] == (byte)'l') log_cmd = 2;
+			if (data[end+head_length] == (byte)'f') log_cmd = 3;
+			if (data[end+head_length] == (byte)'g') log_cmd = 4;
+			if (data[end+head_length] == (byte)'e') log_cmd = 5;
+			if (data[end+head_length] == (byte)'s') log_cmd = 6;
 			Log.v(TAG, "log_cmd:"+log_cmd);
 
 			ini = end+head_length+1;
@@ -384,12 +371,12 @@ public class MainActivityCentinela extends Activity {
 			if(sa!=null) sa.sendCmd(new byte[]{ 'l' });
 			break;
 		case 6:
-			if (mc!=null) mc.appendLog("O_o\n");
 			if (sa!=null) {
 				if (data.length >=13) {
 					for (int i = 0; i < data.length; i++) Log.v(TAG, "data["+i+"]:"+(int)(data[i] & 0xff));
 
-					int nch = (data[0] & 0xff);
+					int nch = ((data[0] & 0xff) >> 4) & 0xf;
+					int average = (data[0] & 0xff) & 0xf;
 
 					long tick_time_usec = 0;
 					long time_max_msec = 0;
@@ -405,7 +392,7 @@ public class MainActivityCentinela extends Activity {
 						sd_buffer_size = (sd_buffer_size << 8) + (data[12-i] & 0xff);
 					}
 
-					sa.refreshGUI(nch, tick_time_usec, time_max_msec);
+					sa.refreshGUI(nch, average, tick_time_usec, time_max_msec);
 				}
 			}
 			break;

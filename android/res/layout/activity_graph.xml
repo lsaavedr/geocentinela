@@ -8,12 +8,13 @@
     android:paddingTop="@dimen/activity_vertical_margin"
     tools:context=".GraphActivity" >
 
- <cl.timining.centinela.MultitouchPlot
+<cl.timining.centinela.MultitouchPlot
     android:id="@+id/mySimpleXYPlot"
     android:layout_width="fill_parent"
     android:layout_height="fill_parent"
-    android:layout_marginTop="10px"
-    android:layout_marginLeft="10px"
-    android:layout_marginRight="10px" />
+    android:layout_alignParentBottom="true"
+    android:layout_alignParentLeft="true"
+    android:layout_alignParentRight="true"
+    android:layout_alignParentTop="true" />
 
 </RelativeLayout>
