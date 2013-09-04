@@ -33,8 +33,14 @@ bool CentCFG::write()
     // write uint32_t tick_time_usec:
     file_cfg.write((uint8_t*)&tick_time_usec, sizeof(uint32_t));
 
-    // write uint32_t time_max_msec:
-    file_cfg.write((uint8_t*)&time_max_msec, sizeof(uint32_t));
+    // write uint8_t time_type:
+    file_cfg.write(time_type);
+
+    // write uint32_t time_begin_seg:
+    file_cfg.write((uint8_t*)&time_begin_seg, sizeof(uint32_t));
+
+    // write uint32_t time_end_seg:
+    file_cfg.write((uint8_t*)&time_end_seg, sizeof(uint32_t));
 
     // write uint16_t adc_buffer_size:
     file_cfg.write((uint8_t*)&adc_buffer_size, sizeof(uint16_t));
@@ -81,9 +87,29 @@ bool CentCFG::read()
       return false;
     }
 
-    // read uint32_t time_max_msec:
-    if (file_cfg.read(&time_max_msec, 4) != 4) {
-      log(PSTR("CentCFG: time_max_msec"));
+    // read uint8_t time_type:
+    if (file_cfg.read(&time_type, 1) != 1) {
+      log(PSTR("CentCFG: time_type"));
+      if (!file_cfg.close()) {
+        log(PSTR("CentCFG: file close error"));
+        log(file_name);
+      }
+      return false;
+    }
+
+    // read uint32_t time_begin_seg:
+    if (file_cfg.read(&time_begin_seg, 4) != 4) {
+      log(PSTR("CentCFG: time_begin_seg"));
+      if (!file_cfg.close()) {
+        log(PSTR("CentCFG: file close error"));
+        log(file_name);
+      }
+      return false;
+    }
+
+    // read uint32_t time_end_seg:
+    if (file_cfg.read(&time_end_seg, 4) != 4) {
+      log(PSTR("CentCFG: time_end_seg"));
       if (!file_cfg.close()) {
         log(PSTR("CentCFG: file close error"));
         log(file_name);
@@ -131,7 +157,9 @@ void CentCFG::print()
   Serial.print(PSTR("nch:")); Serial.println(nch);
   Serial.print(PSTR("average:")); Serial.println(average);
   Serial.print(PSTR("tick_time_usec:")); Serial.println(tick_time_usec);
-  Serial.print(PSTR("time_max_msec:")); Serial.println(time_max_msec);
+  Serial.print(PSTR("time_type:")); Serial.println(time_type);
+  Serial.print(PSTR("time_begin_seg:")); Serial.println(time_begin_seg);
+  Serial.print(PSTR("time_begin_seg:")); Serial.println(time_begin_seg);
   Serial.print(PSTR("adc_buffer_size:")); Serial.println(adc_buffer_size);
   Serial.print(PSTR("sd_buffer_size:")); Serial.println(sd_buffer_size);
   Serial.print(PSTR("F_BUS:")); Serial.println(F_BUS);

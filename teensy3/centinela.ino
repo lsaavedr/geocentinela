@@ -18,15 +18,23 @@
  * <http://www.gnu.org/licenses/>.
  */
 #include <IntervalTimer.h>
-#include <SdFat.h>
+#include <Time.h>
 
-#include <malloc.h> // needed to mamalign and malloc
+#include <SdFat.h>
+#include <LowPower_Teensy3.h>
+
+#include <malloc.h> // needed to mamalign and calloc
 #include <cmath> // needed to log2
 
 #include "CentCFG.h"
 //-------------------------------
 
 CentCFG cent_cfg(PSTR("CNT.CFG"), centinela_printlog);
+
+//-------------------------------
+
+TEENSY3_LP lp = TEENSY3_LP();
+configSleep* lp_cfg; // sleep configuration
 
 //-------------------------------
 
@@ -61,7 +69,7 @@ volatile uint8_t cen_st = 0;     // Centinela Status
 //-------------------------------
 
 uint32_t time;
-#define FILE_MAX_LENGH 11
+#define FILENAME_MAX_LENGH 11
 
 //-------------------------------
 
@@ -72,10 +80,10 @@ void adc_cfg()
 
   // general configuration
   ADC0_CFG1 = 0
-    | ADC_CFG1_ADLPC // lower power: off, on
-    | ADC_CFG1_ADIV(1) // clock divide: 1, 2, 4, 8
-    //| ADC_CFG1_ADLSMP // sample time: short, long
-    | ADC_CFG1_MODE(3)  // conversion mode: 8, 12, 10, 16
+    | ADC_CFG1_ADLPC     // lower power: off, on
+    | ADC_CFG1_ADIV(1)   // clock divide: 1, 2, 4, 8
+    //| ADC_CFG1_ADLSMP    // sample time: short, long
+    | ADC_CFG1_MODE(3)   // conversion mode: 8, 12, 10, 16
 #if F_BUS == 24000000
     | ADC_CFG1_ADICLK(0) // input clock: bus, bus/2, alternate, asynchronous
 #elif F_BUS == 48000000
@@ -83,22 +91,27 @@ void adc_cfg()
 #endif
   ;
 
-  ADC0_CFG2 = 0 // asynchronous clock output disable
-    | ADC_CFG2_MUXSEL // adc mux (see pag. 96): ADxxa, ADxxb
-    //| ADC_CG2_ADACKEN // asynchronous clock output: disable, enable
-    | ADC_CFG2_ADHSC // high speed configuration: normal, high
+  ADC0_CFG2 = 0
+    | ADC_CFG2_MUXSEL    // adc mux (see pag. 96): ADxxa, ADxxb
+    //| ADC_CG2_ADACKEN    // asynchronous clock output: disable, enable
+    | ADC_CFG2_ADHSC     // high speed configuration: normal, high
     | ADC_CFG2_ADLSTS(0) // long sample time: 20ext, 12ext, 6ext, 2ext
   ;
 
   // control
-  ADC0_SC2 = 0 // software trigger, compare disabled
-    | ADC_SC2_DMAEN // DMA enable
+  ADC0_SC2 = 0
+    //| ADC_SC2_ADTRG     // trigger select: software, hardware
+    //| ADC_SC2_ACFE      // compare function: disable, enable
+    //| ADC_SC2_ACFGT     // compare function greater than: disable, enable
+    //| ADC_SC2_ACREN     // compare function range: disable, enable
+    | ADC_SC2_DMAEN     // DMA enable
     | ADC_SC2_REFSEL(1) // 0-> 3.3v, 1->1.2v
   ;
 
   if (cent_cfg.average < 4) {
-    ADC0_SC3 = 0 // continuous conversion disable
-      | ADC_SC3_AVGE // enable hardware average
+    ADC0_SC3 = 0
+      //| ADC_SC3_ADCO                   // continuous conversion: disable, enable
+      | ADC_SC3_AVGE                   // enable hardware average
       | ADC_SC3_AVGS(cent_cfg.average) // average select: 0->4, 1->8, 2->16, 3->32
     ;
   } else {
@@ -145,6 +158,19 @@ void dma_cfg()
   cen_st |= CEN_ST_DMA;
 }
 
+time_t getTeensy3Time()
+{
+  return Teensy3Clock.get();
+}
+
+bool rtc_cfg()
+{
+  // set the Time library to use Teensy 3.0's RTC to keep time
+  setSyncProvider(getTeensy3Time);
+
+  return timeStatus() == timeSet;
+}
+
 bool buff_rcfg()
 {
   // first, the adc_ring_buffer is aligned
@@ -153,19 +179,22 @@ bool buff_rcfg()
                                          cent_cfg.adc_buffer_size_bytes);
 
   if (adc_config) { free(adc_config); adc_config = NULL; }
-  size_t size = (1+cent_cfg.nch) * sizeof(uint32_t);
-  adc_config = (uint32_t*) malloc(size);
+  adc_config = (uint32_t*) calloc(1+cent_cfg.nch, sizeof(uint32_t));
 
   if (sd_buffer) { free(sd_buffer); sd_buffer = NULL; }
-  sd_buffer = (uint16_t*) malloc(cent_cfg.sd_buffer_size_bytes);
+  sd_buffer = (uint16_t*) calloc(cent_cfg.sd_buffer_size, sizeof(uint16_t));
 
-  if (adc_ring_buffer && adc_config && sd_buffer) {
+  if (lp_cfg) { free(lp_cfg); lp_cfg = NULL; }
+  lp_cfg = (configSleep*) calloc(1, sizeof(configSleep));
+
+  if (adc_ring_buffer && adc_config && sd_buffer %% lp_cfg) {
     cen_st |= CEN_ST_RBUFF;
     return true;
   } else {
     if (adc_ring_buffer) { free(adc_ring_buffer); adc_ring_buffer = NULL; }
     if (adc_config) { free(adc_config); adc_config = NULL; }
     if (sd_buffer) { free(sd_buffer); sd_buffer = NULL; }
+    if (lp_cfg) { free(lp_cfg); lp_cfg = NULL; }
     return false;
   }
 }
@@ -267,13 +296,20 @@ void setup()
   // configure DMA
   dma_cfg();
 
+  // configure RTC
+  if (!rtc_cfg()) {
+    while (true) {
+      centinela_printlog(PSTR("error: rtc!"));
+      delay(1000);
+    }
+  }
+
   // initialize file system
   if (!sd.begin(SS, SPI_FULL_SPEED)) {
     while (true) {
       centinela_printlog(PSTR("error: sdcard!"));
       delay(1000);
     }
-    //sd.initErrorHalt();
   }
 
   // read configuration from sdcard
@@ -290,10 +326,71 @@ void setup()
   rcfg();
 }
 
+uint32_t sleep_chrono()
+{
+  // reset lp_cfg
+  memset(lp_cfg, 0, sizeof(configSleep));
+
+  // OR together different wake sources
+  lp_cfg->modules = RTC_WAKE;
+
+  // RTC alarm wakeup in seconds:
+  lp_cfg->rtc_alarm = cent_cfg.time_begin_seg;
+
+  uint32_t di = (cent_cfg.time_end_seg*1000000)/cent_cfg.tick_time_usec;
+
+  // sleep
+  if (lp_cfg->rtc_alarm != 0) lp.DeepSleep(lp_cfg);
+
+  return di;
+}
+
+uint32_t sleep_daily()
+{
+  // reset lp_cfg
+  memset(lp_cfg, 0, sizeof(configSleep));
+
+  // OR together different wake sources
+  lp_cfg->modules = RTC_WAKE;
+
+  uint32_t time_n = Teensy3Clock.get()%86400;
+
+  uint32_t di = 0;
+
+  // RTC alarm wakeup in seconds:
+  if (cent_cfg.time_begin_seg < cent_cfg.time_end_seg) {
+    di = ((cent_cfg.time_end_seg - cent_cfg.time_begin_seg)*1000000)/cent_cfg.tick_time_usec;
+    if (time_n < cent_cfg.time_begin_seg) {
+      lp_cfg->rtc_alarm = cent_cfg.time_begin_seg - time_n;
+    } else if (time_n > cent_cfg.time_end_seg) {
+      lp_cfg->rtc_alarm = cent_cfg.time_begin_seg + (86400 - time_n);
+    } else {
+      lp_cfg->rtc_alarm = 0;
+      di = ((cent_cfg.time_end_seg - time_n)*1000000)/cent_cfg.tick_time_usec;
+    }
+  } else {
+    di = ((cent_cfg.time_end_seg + (86400 - cent_cfg.time_begin_seg))*1000000)/cent_cfg.tick_time_usec;
+    if (time_n < cent_cfg.time_end_seg) {
+      lp_cfg->rtc_alarm = 0;
+      di = ((cent_cfg.time_end_seg - time_n)*1000000)/cent_cfg.tick_time_usec;
+    } else if (time_n > cent_cfg.time_begin_seg) {
+      lp_cfg->rtc_alarm = 0;
+      di = ((cent_cfg.time_end_seg + (86400 - time_n))*1000000)/cent_cfg.tick_time_usec;
+    } else {
+      lp_cfg->rtc_alarm = cent_cfg.time_begin_seg - time_n;
+    }
+  }
+
+  // sleep
+  if (lp_cfg->rtc_alarm != 0) lp.DeepSleep(lp_cfg);
+
+  return di;
+}
+
 bool file_cfg()
 {
   // create a new file
-  char name[FILE_MAX_LENGH+1];
+  char name[FILENAME_MAX_LENGH+1];
   strcpy_P(name, PSTR("CNT0000.CNT"));
   for (uint8_t n = 0; n < 10000; n++) {
     name[3] = '0' + n/1000;
@@ -312,6 +409,9 @@ bool file_cfg()
 
     // write uint32_t tick_time_usec:
     file.write((uint8_t*)&cent_cfg.tick_time_usec, sizeof(uint32_t));
+
+    // write uint8_t time_type:
+    file.write(cent_cfg.time_type);
 
     return true;
   }
@@ -341,13 +441,18 @@ bool centinela_start()
 
   // configure file
   if (file_cfg()) {
-    // write uint32_t time_max_msec:
-    sd_buffer[0] = ((uint16_t*)&cent_cfg.time_max_msec)[0];
-    sd_buffer[1] = ((uint16_t*)&cent_cfg.time_max_msec)[1];
+    // write uint32_t time_begin_seg:
+    sd_buffer[sd_head+0] = ((uint16_t*)&cent_cfg.time_begin_seg)[0];
+    sd_buffer[sd_head+1] = ((uint16_t*)&cent_cfg.time_begin_seg:)[1];
     sd_head += 2;
 
-    // configure time
-    time = millis();
+    // write uint32_t time_end_seg:
+    sd_buffer[sd_head+0] = ((uint16_t*)&cent_cfg.time_end_seg)[0];
+    sd_buffer[sd_head+1] = ((uint16_t*)&cent_cfg.time_end_seg:)[1];
+    sd_head += 2;
+
+    // read rtc time
+    uint32_t rtc_time = Teensy3Clock.get();
 
     // configure timer
     if (!timer.begin(timer_callback, cent_cfg.tick_time_usec)) {
@@ -356,7 +461,6 @@ bool centinela_start()
     }
 
     // write uint32_t rtc_time_sec:
-    uint32_t rtc_time = time;
     sd_buffer[2] = ((uint16_t*)&rtc_time)[0];
     sd_buffer[3] = ((uint16_t*)&rtc_time)[1];
     sd_head += 2;
@@ -436,10 +540,11 @@ bool centinela_ls()
 
 //uint32_t tic = 0;
 //uint32_t toc = 0;
+uint32_t cent_cfg_time = 30000;
+uint32_t cent_cfg_run = 0;
 
 void loop()
 {
-  //if (cen_st & CEN_ST_RUN) toc = micros();
   while (cen_st & CEN_ST_RUN) {
     while (delta > cent_cfg.nch) {
       if (sd_head == cent_cfg.sd_buffer_size) {
@@ -467,181 +572,230 @@ void loop()
     }
   }
 
-  if ((boolean)Serial.available()) {
-    uint8_t cmd = Serial.read();
-    uint32_t length = (uint32_t)Serial.available();
+  if (!(cen_st & CEN_ST_RUN)) {
+    while ((millis()-time) < cent_cfg_time) {
+      if ((boolean)Serial.available()) {
+        uint8_t cmd = Serial.read();
+        uint32_t length = (uint32_t)Serial.available();
 
-    uint8_t message[FILE_MAX_LENGH+1];
-    SdFile fileData;
+        uint8_t message[FILENAME_MAX_LENGH+1];
+        SdFile fileData;
 
-    switch (cmd) {
-      case 'n': // start
-        if (centinela_start()) centinela_printlog(PSTR("Started with cmd!"));
-        break;
-      case 'd': // stop
-        if (centinela_stop()) centinela_printlog(PSTR("Stopped with cmd!"));
-        break;
-      case 'l': // ls command
-        if (centinela_stop()) centinela_printlog(PSTR("Stopped with cmd!"));
-        if (centinela_ls()) centinela_printlog(PSTR("list with cmd!"));
-        break;
-      case 'g': // get a file
-        if (centinela_stop()) centinela_printlog(PSTR("Stopped with cmd!"));
+        switch (cmd) {
+          case 'n': { // start
+            switch (cent_cfg.time_type) {
+              case 0: {
+                
+              } break;
+              case 1: {
+              } break;
+            }
+            if (centinela_start()) centinela_printlog(PSTR("Started with cmd!"));
+          } break;
+          case 'l': { // ls command
+            uint8_t head[1] = { 'l' };
+            centinela_cmd(head, 1);
 
-        for (cmd = 0; cmd <= FILE_MAX_LENGH && cmd < length; cmd++)
-          message[cmd] = Serial.read();
-        message[cmd] = '\0';
+            sd.ls(LS_R);
+            centinela_printlog(PSTR("list with cmd!"));
+          } break;
+          case 'g': { // get a file
+            for (cmd = 0; cmd <= FILENAME_MAX_LENGH && cmd < length; cmd++)
+              message[cmd] = Serial.read();
+            message[cmd] = '\0';
 
-        if (cmd > 0) {
-          if (!fileData.open((char*)message, O_READ)) {
-            centinela_printlog(PSTR("error:loop: open file data!"));
-            centinela_printlog((char*)message);
-          } else {
-            uint8_t head[2] = { 'f', cmd };
-            centinela_cmd(head, 2);
+            if (cmd > 0) {
+              if (!fileData.open((char*)message, O_READ)) {
+                centinela_printlog(PSTR("error:loop:conf:g: open file data!"));
+              } else {
+                uint8_t head[2] = { 'f', cmd };
+                centinela_cmd(head, 2);
 
-            Serial.write(message, cmd);
-            int16_t data;
-            while ((data = fileData.read()) >= 0) Serial.write((uint8_t)data);
+                Serial.write(message, cmd);
+                int16_t data;
+                while ((data = fileData.read()) >= 0) Serial.write((uint8_t)data);
 
-            uint8_t tail[2] = { 'g', cmd };
-            centinela_cmd(tail, 2);
+                uint8_t tail[2] = { 'g', cmd };
+                centinela_cmd(tail, 2);
 
-            centinela_printlog(PSTR("Getting file with cmd!"));
-            centinela_printlog((char*)message);
-          }
-        }
-        break;
-      case 'r': // remove file
-        if (centinela_stop()) centinela_printlog(PSTR("Stopped with cmd!"));
-
-        for (cmd = 0; cmd <= FILE_MAX_LENGH && cmd < length; cmd++)
-          message[cmd] = Serial.read();
-        message[cmd] = '\0';
-
-        if (cmd > 0) {
-          if (!fileData.open((char*)message, O_WRITE)) {
-            centinela_printlog(PSTR("error:loop: open file data!"));
-            centinela_printlog((char*)message);
-          } else {
-            if (!fileData.remove()) {
-              centinela_printlog(PSTR("error:loop: remove file data!"));
-            } else {
-              centinela_printlog(PSTR("Remove file with cmd!"));
+                centinela_printlog(PSTR("Getting file with cmd!"));
+              }
               centinela_printlog((char*)message);
             }
-          }
-        }
-        break;
-      case 's':
-        if (length > 0) {
-          cmd = Serial.read();
-
-          bool write_cfg = false;
-
-          switch (cmd) {
-          case 'g': {
-            uint8_t settings[14] = { 's',
-                                     (cent_cfg.nch << 4) | cent_cfg.average,
-                                     ((uint8_t*)&cent_cfg.tick_time_usec)[0],
-                                     ((uint8_t*)&cent_cfg.tick_time_usec)[1],
-                                     ((uint8_t*)&cent_cfg.tick_time_usec)[2],
-                                     ((uint8_t*)&cent_cfg.tick_time_usec)[3],
-                                     ((uint8_t*)&cent_cfg.time_max_msec)[0],
-                                     ((uint8_t*)&cent_cfg.time_max_msec)[1],
-                                     ((uint8_t*)&cent_cfg.time_max_msec)[2],
-                                     ((uint8_t*)&cent_cfg.time_max_msec)[3],
-                                     ((uint8_t*)&cent_cfg.adc_buffer_size)[0],
-                                     ((uint8_t*)&cent_cfg.adc_buffer_size)[1],
-                                     ((uint8_t*)&cent_cfg.sd_buffer_size)[0],
-                                     ((uint8_t*)&cent_cfg.sd_buffer_size)[1],
-            };
-            centinela_cmd(settings, 14);
           } break;
-          case 'p':
-            centinela_printlog("Config:");
-            cent_cfg.print();
-            break;
-          case 'n':
-            if (length > 1) {
+          case 'r': { // remove file
+            for (cmd = 0; cmd <= FILENAME_MAX_LENGH && cmd < length; cmd++)
+              message[cmd] = Serial.read();
+            message[cmd] = '\0';
+
+            if (cmd > 0) {
+              if (!fileData.open((char*)message, O_WRITE)) {
+                centinela_printlog(PSTR("error:loop:conf:r: open file data!"));
+              } else {
+                if (!fileData.remove()) {
+                  centinela_printlog(PSTR("error:loop:conf:r: remove file data!"));
+                } else {
+                  centinela_printlog(PSTR("Remove file with cmd!"));
+                }
+              }
+              centinela_printlog((char*)message);
+            }
+          } break;
+          case 's': {
+            if (length > 0) {
               cmd = Serial.read();
-              cent_cfg.set_nch(cmd);
 
-              // configure adc
-              adc_cfg();
+              bool write_cfg = false;
 
-              // reallocate adc_config
-              if (adc_config) { free(adc_config); adc_config = NULL; }
-              size_t size = (1+cent_cfg.nch) * sizeof(uint32_t);
-              adc_config = (uint32_t*) malloc(size);
+              switch (cmd) {
+              case 'g': {
+                uint8_t settings[19] = { 's',
+                                         (cent_cfg.nch << 4) | cent_cfg.average,
+                                         ((uint8_t*)&cent_cfg.tick_time_usec)[0],
+                                         ((uint8_t*)&cent_cfg.tick_time_usec)[1],
+                                         ((uint8_t*)&cent_cfg.tick_time_usec)[2],
+                                         ((uint8_t*)&cent_cfg.tick_time_usec)[3],
+                                         cent_cfg.time_type,
+                                         ((uint8_t*)&cent_cfg.time_begin_seg)[0],
+                                         ((uint8_t*)&cent_cfg.time_begin_seg)[1],
+                                         ((uint8_t*)&cent_cfg.time_begin_seg)[2],
+                                         ((uint8_t*)&cent_cfg.time_begin_seg)[3],
+                                         ((uint8_t*)&cent_cfg.time_end_seg)[0],
+                                         ((uint8_t*)&cent_cfg.time_end_seg)[1],
+                                         ((uint8_t*)&cent_cfg.time_end_seg)[2],
+                                         ((uint8_t*)&cent_cfg.time_end_seg)[3],
+                                         ((uint8_t*)&cent_cfg.adc_buffer_size)[0],
+                                         ((uint8_t*)&cent_cfg.adc_buffer_size)[1],
+                                         ((uint8_t*)&cent_cfg.sd_buffer_size)[0],
+                                         ((uint8_t*)&cent_cfg.sd_buffer_size)[1],
+                };
+                centinela_cmd(settings, 19);
+              } break;
+              case 'p': {
+                centinela_printlog(PSTR("Settings:"));
+                cent_cfg.print();
+              } break;
+              case 'n': {
+                if (length > 1) {
+                  cmd = Serial.read();
+                  cent_cfg.set_nch(cmd);
 
-              write_cfg = true;
+                  // reallocate adc_config
+                  if (adc_config) { free(adc_config); adc_config = NULL; }
+                  adc_config = (uint32_t*) calloc(1+cent_cfg.nch, sizeof(uint32_t));
+
+                  write_cfg = true;
+                }
+              } break;
+              case 'm': {
+                if (length > 1) {
+                  cmd = Serial.read();
+                  cent_cfg.set_average(cmd);
+                  write_cfg = true;
+                }
+              } break;
+              case 's': {
+                if (length > 4) {
+                  uint32_t tick_time_usec;
+                  ((uint8_t*)&tick_time_usec)[0] = Serial.read();
+                  ((uint8_t*)&tick_time_usec)[1] = Serial.read();
+                  ((uint8_t*)&tick_time_usec)[2] = Serial.read();
+                  ((uint8_t*)&tick_time_usec)[3] = Serial.read();
+                  cent_cfg.set_tick_time_usec(tick_time_usec);
+                  write_cfg = true;
+                }
+              } break;
+              case 't': {
+                if (length > 1) {
+                  cmd = Serial.read();
+                  cent_cfg.set_time_type(cmd);
+                  write_cfg = true;
+                }
+              } break;
+              case 'u': {
+                if (length > 4) {
+                  uint32_t time_begin_seg;
+                  ((uint8_t*)&time_begin_seg)[0] = Serial.read();
+                  ((uint8_t*)&time_begin_seg)[1] = Serial.read();
+                  ((uint8_t*)&time_begin_seg)[2] = Serial.read();
+                  ((uint8_t*)&time_begin_seg)[3] = Serial.read();
+                  cent_cfg.set_time_begin(time_begin_seg);
+                  write_cfg = true;
+                }
+              } break;
+              case 'v': {
+                if (length > 4) {
+                  uint32_t time_end_seg;
+                  ((uint8_t*)&time_end_seg)[0] = Serial.read();
+                  ((uint8_t*)&time_end_seg)[1] = Serial.read();
+                  ((uint8_t*)&time_end_seg)[2] = Serial.read();
+                  ((uint8_t*)&time_end_seg)[3] = Serial.read();
+                  cent_cfg.set_time_end(time_end_seg);
+                  write_cfg = true;
+                }
+              } break;
+              case 'a': {
+                if (length > 2) {
+                  uint16_t adc_buffer_size;
+                  ((uint8_t*)&adc_buffer_size)[0] = Serial.read();
+                  ((uint8_t*)&adc_buffer_size)[1] = Serial.read();
+                  cent_cfg.set_adc_buffer_size(adc_buffer_size);
+                  write_cfg = true;
+                }
+              } break;
+              case 'b': {
+                if (length > 2) {
+                  uint16_t sd_buffer_size;
+                  ((uint8_t*)&sd_buffer_size)[0] = Serial.read();
+                  ((uint8_t*)&sd_buffer_size)[1] = Serial.read();
+                  cent_cfg.set_sd_buffer_size(sd_buffer_size);
+                  write_cfg = true;
+                }
+              } break;
+              case 'r': {
+                time_t pctime = (time_t)Serial.parseInt();
+                if (time_t != 0) {
+                  Teensy3Clock.set(t); // set the RTC
+                  setTime(t);
+                }
+              } break;
+              default:
+                centinela_printlog(PSTR("bad set!"));
+              }
+
+              if (write_cfg) {
+                cent_cfg.write();
+
+                // configure adc
+                adc_cfg();
+
+                // reconfigure ADC
+                adc_rcfg();
+
+                // reconfigure DMA
+                dma_rcfg();
+              }
             }
-            break;
-          case 'm':
-            if (length > 1) {
-              cmd = Serial.read();
-              cent_cfg.set_average(cmd);
-              write_cfg = true;
-            }
-            break;
-          case 's':
-            if (length > 4) {
-              uint32_t tick_time_usec;
-              ((uint8_t*)&tick_time_usec)[0] = Serial.read();
-              ((uint8_t*)&tick_time_usec)[1] = Serial.read();
-              ((uint8_t*)&tick_time_usec)[2] = Serial.read();
-              ((uint8_t*)&tick_time_usec)[3] = Serial.read();
-              cent_cfg.set_tick_time_usec(tick_time_usec);
-              write_cfg = true;
-            }
-            break;
-          case 't':
-            if (length > 4) {
-              uint32_t time_max_msec;
-              ((uint8_t*)&time_max_msec)[0] = Serial.read();
-              ((uint8_t*)&time_max_msec)[1] = Serial.read();
-              ((uint8_t*)&time_max_msec)[2] = Serial.read();
-              ((uint8_t*)&time_max_msec)[3] = Serial.read();
-              cent_cfg.set_time_max_msec(time_max_msec);
-              write_cfg = true;
-            }
-            break;
-          case 'a':
-            if (length > 2) {
-              uint16_t adc_buffer_size;
-              ((uint8_t*)&adc_buffer_size)[0] = Serial.read();
-              ((uint8_t*)&adc_buffer_size)[1] = Serial.read();
-              cent_cfg.set_adc_buffer_size(adc_buffer_size);
-              write_cfg = true;
-            }
-            break;
-          case 'b':
-            if (length > 2) {
-              uint16_t sd_buffer_size;
-              ((uint8_t*)&sd_buffer_size)[0] = Serial.read();
-              ((uint8_t*)&sd_buffer_size)[1] = Serial.read();
-              cent_cfg.set_sd_buffer_size(sd_buffer_size);
-              write_cfg = true;
-            }
-            break;
+          } break;
           default:
-            centinela_printlog(PSTR("bad set!"));
-          }
-
-          if (write_cfg) {
-            cent_cfg.write();
-
-            // reconfigure ADC
-            adc_rcfg();
-
-            // reconfigure DMA
-            dma_rcfg();
-          }
+            centinela_printlog(PSTR("bad cmd!"));
         }
-        break;
-      default:
-        centinela_printlog(PSTR("bad cmd!"));
+
+        time = millis();
+      }
+    }
+
+    while ((millis()-time) > cent_cfg_time) { // go to deep sleep
+      switch (cent_cfg.time_type) {
+        case 0: { // chrono
+        
+        } break;
+        case 1: { // daily
+        
+        } break;
+        default:
+          centinela_printlog(PSTR("error: time type!"));
+      }
     }
   }
 }

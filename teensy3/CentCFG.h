@@ -34,7 +34,10 @@ public:
   uint8_t nch = 3;
   uint8_t average = 2; //  0->4, 1->8, 2->16, 3->32
   uint32_t tick_time_usec = 125; // 8ksps
-  uint32_t time_max_msec = 20000;
+
+  uint8_t time_type = 0;
+  uint32_t time_begin_seg = 30;
+  uint32_t time_end_seg = 20;
 
   uint16_t adc_buffer_size = 1024; // 1024*2
   uint16_t adc_buffer_size_bytes = adc_buffer_size * sizeof(uint16_t);
@@ -88,9 +91,19 @@ public:
     if (tick_time_usec >= MIN_TICK_TIME_USEC) this->tick_time_usec = tick_time_usec;
   }
 
-  void set_time_max_msec(uint32_t time_max_msec)
+  void set_time_type(uint8_t time_type)
   {
-    this->time_max_msec = time_max_msec;
+    this->time_type = time_type;
+  }
+
+  void set_time_begin(uint32_t time_begin_seg)
+  {
+    this->time_begin_seg = time_begin_seg;
+  }
+
+  void set_time_end(uint32_t time_end_seg)
+  {
+    this->time_end_seg = time_end_seg;
   }
 
   void set_sd_buffer_size(uint16_t sd_buffer_size)
