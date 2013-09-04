@@ -44,7 +44,7 @@ uint32_t* adc_config = NULL;
 SdFat sd;
 SdFile file;
 SdFile file_conf;
-uint16_t* sd_buffer; //[sd_buffer_size]; // 2*sd_buffer_size bytes
+uint16_t* sd_buffer;
 
 IntervalTimer timer;
 
@@ -177,6 +177,7 @@ bool buff_rcfg()
   if (adc_ring_buffer) { free(adc_ring_buffer); adc_ring_buffer = NULL; }
   adc_ring_buffer = (uint16_t*) memalign(cent_cfg.adc_buffer_size_bytes,
                                          cent_cfg.adc_buffer_size_bytes);
+  memset(adc_ring_buffer, 0, cent_cfg.adc_buffer_size_bytes);
 
   if (adc_config) { free(adc_config); adc_config = NULL; }
   adc_config = (uint32_t*) calloc(1+cent_cfg.nch, sizeof(uint32_t));
@@ -324,6 +325,15 @@ void setup()
 
   // reconfigure
   rcfg();
+}
+
+void deep_sleep()
+{
+  // reset lp_cfg
+  memset(lp_cfg, 0, sizeof(configSleep));
+
+  // sleep
+  lp.DeepSleep(lp_cfg);
 }
 
 uint32_t sleep_chrono()
@@ -481,12 +491,6 @@ bool centinela_stop()
   timer.end();
   while (ADC0_SC1A != adc_config[cent_cfg.nch]) {
     centinela_printlog(PSTR("warning:stop: waiting for the ADC!"));
-    /*Serial.print("ADC0_SC1A:");
-    Serial.println(ADC0_SC1A);
-    Serial.print("cent_cfg.nch:");
-    Serial.println(cent_cfg.nch);
-    Serial.print("adc_config:");
-    Serial.println(adc_config[cent_cfg.nch]);*/
     delay(1000);
   }
 
@@ -538,8 +542,6 @@ bool centinela_ls()
   return true;
 }
 
-//uint32_t tic = 0;
-//uint32_t toc = 0;
 uint32_t cent_cfg_time = 30000;
 uint32_t cent_cfg_run = 0;
 
@@ -548,10 +550,7 @@ void loop()
   while (cen_st & CEN_ST_RUN) {
     while (delta > cent_cfg.nch) {
       if (sd_head == cent_cfg.sd_buffer_size) {
-        //tic = micros();
         file.write(sd_buffer, cent_cfg.sd_buffer_size_bytes);
-        //Serial.println((uint32_t)(tic-toc));
-        //toc = micros();
         sd_head = 0;
       }
 
@@ -559,15 +558,26 @@ void loop()
 
       tail &= cent_cfg.adc_buffer_hash;
       delta--;
+
+      if (cent_cfg_run-- <= 0) break;
     }
 
     if (file.writeError) centinela_printlog(PSTR("error:loop: file write!"));
 
-    if ((millis()-time) > cent_cfg.time_max_msec) {
+    if (cent_cfg_run-- <= 0) {
       if (centinela_stop()) {
-        centinela_printlog(PSTR("Stopped with time!"));
+        centinela_printlog(PSTR("Stopped!"));
         uint8_t end[2] = { 'e', 'c' };
         centinela_cmd(end, 2);
+      }
+
+      switch (cent_cfg.time_type) {
+        case 0: { // chrono
+          deep_sleep();
+        } break;
+        case 1: { // daily
+          cent_cfg_run = sleep_daily();
+        } break;
       }
     }
   }
@@ -585,12 +595,13 @@ void loop()
           case 'n': { // start
             switch (cent_cfg.time_type) {
               case 0: {
-                
+                cent_cfg_run = sleep_chrono();
               } break;
               case 1: {
+                cent_cfg_run = sleep_daily();
               } break;
             }
-            if (centinela_start()) centinela_printlog(PSTR("Started with cmd!"));
+            if (centinela_start()) centinela_printlog(PSTR("Started!"));
           } break;
           case 'l': { // ls command
             uint8_t head[1] = { 'l' };
@@ -673,6 +684,8 @@ void loop()
               } break;
               case 'p': {
                 centinela_printlog(PSTR("Settings:"));
+                centinela_printlog(PSTR("Time:"));
+                Serial.println(Teensy3Clock.get());
                 cent_cfg.print();
               } break;
               case 'n': {
@@ -781,20 +794,8 @@ void loop()
             centinela_printlog(PSTR("bad cmd!"));
         }
 
-        time = millis();
-      }
-    }
-
-    while ((millis()-time) > cent_cfg_time) { // go to deep sleep
-      switch (cent_cfg.time_type) {
-        case 0: { // chrono
-        
-        } break;
-        case 1: { // daily
-        
-        } break;
-        default:
-          centinela_printlog(PSTR("error: time type!"));
+        if (!(cen_st & CEN_ST_RUN)) time = millis();
+        else break;
       }
     }
   }

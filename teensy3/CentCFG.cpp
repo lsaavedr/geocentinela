@@ -22,7 +22,8 @@
 #include "CentCFG.h"
 
 //const uint8_t CentCFG::channel2sc1a[MAX_NCH] = { 5, 14, 8, 9, 13, 12, 6, 7, 15, 4 };
-const uint8_t CentCFG::channel2sc1a[MAX_NCH] = { 5, 14, 8, 9, 13, 12, 15, 6, 7, 4 };
+//const uint8_t CentCFG::channel2sc1a[MAX_NCH] = { 5, 14, 8, 9, 13, 12, 15, 6, 7, 4 };
+const uint8_t CentCFG::channel2sc1a[MAX_NCH] = { 9, 5, 14, 8, 13, 6, 15, 12, 7, 4 };
 
 bool CentCFG::write()
 {

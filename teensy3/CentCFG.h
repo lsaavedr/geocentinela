@@ -29,7 +29,7 @@
 
 class CentCFG {
 public:
-  static const uint8_t channel2sc1a[MAX_NCH]; // = { 5, 14, 8, 9, 13, 12, 6, 7, 15, 4 };
+  static const uint8_t channel2sc1a[MAX_NCH]; // = { 5, 14, 8, 9, 13, 6, 15, 12, 7, 4 };
 
   uint8_t nch = 3;
   uint8_t average = 2; //  0->4, 1->8, 2->16, 3->32
