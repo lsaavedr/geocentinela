@@ -187,7 +187,7 @@ bool buff_rcfg()
   if (lp_cfg) { free(lp_cfg); lp_cfg = NULL; }
   lp_cfg = (configSleep*) calloc(1, sizeof(configSleep));
 
-  if (adc_ring_buffer && adc_config && sd_buffer %% lp_cfg) {
+  if (adc_ring_buffer && adc_config && sd_buffer && lp_cfg) {
     cen_st |= CEN_ST_RBUFF;
     return true;
   } else {
@@ -332,7 +332,7 @@ uint32_t sleep_chrono()
   memset(lp_cfg, 0, sizeof(configSleep));
 
   // OR together different wake sources
-  lp_cfg->modules = RTC_WAKE;
+  lp_cfg->modules = RTCA_WAKE;
 
   // RTC alarm wakeup in seconds:
   lp_cfg->rtc_alarm = cent_cfg.time_begin_seg;
@@ -351,7 +351,7 @@ uint32_t sleep_daily()
   memset(lp_cfg, 0, sizeof(configSleep));
 
   // OR together different wake sources
-  lp_cfg->modules = RTC_WAKE;
+  lp_cfg->modules = RTCA_WAKE;
 
   uint32_t time_n = Teensy3Clock.get()%86400;
 
@@ -443,12 +443,12 @@ bool centinela_start()
   if (file_cfg()) {
     // write uint32_t time_begin_seg:
     sd_buffer[sd_head+0] = ((uint16_t*)&cent_cfg.time_begin_seg)[0];
-    sd_buffer[sd_head+1] = ((uint16_t*)&cent_cfg.time_begin_seg:)[1];
+    sd_buffer[sd_head+1] = ((uint16_t*)&cent_cfg.time_begin_seg)[1];
     sd_head += 2;
 
     // write uint32_t time_end_seg:
     sd_buffer[sd_head+0] = ((uint16_t*)&cent_cfg.time_end_seg)[0];
-    sd_buffer[sd_head+1] = ((uint16_t*)&cent_cfg.time_end_seg:)[1];
+    sd_buffer[sd_head+1] = ((uint16_t*)&cent_cfg.time_end_seg)[1];
     sd_head += 2;
 
     // read rtc time
@@ -754,9 +754,9 @@ void loop()
               } break;
               case 'r': {
                 time_t pctime = (time_t)Serial.parseInt();
-                if (time_t != 0) {
-                  Teensy3Clock.set(t); // set the RTC
-                  setTime(t);
+                if (pctime != 0) {
+                  Teensy3Clock.set(pctime); // set the RTC
+                  setTime(pctime);
                 }
               } break;
               default:
