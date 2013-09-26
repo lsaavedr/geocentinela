@@ -31,8 +31,8 @@ bool CentCFG::write()
     // write uint8_t (nch << 4) | average:
     file_cfg.write((nch << 4) | average);
 
-    // write uint32_t tick_time_usec:
-    file_cfg.write((uint8_t*)&tick_time_usec, sizeof(uint32_t));
+    // write uint32_t tick_time_useg:
+    file_cfg.write((uint8_t*)&tick_time_useg, sizeof(uint32_t));
 
     // write uint8_t time_type:
     file_cfg.write(time_type);
@@ -78,9 +78,9 @@ bool CentCFG::read()
       nch = nch >> 4;
     }
 
-    // read uint32_t tick_time_usec:
-    if (file_cfg.read(&tick_time_usec, 4) != 4) {
-      log(PSTR("CentCFG: tick_time_usec"));
+    // read uint32_t tick_time_useg:
+    if (file_cfg.read(&tick_time_useg, 4) != 4) {
+      log(PSTR("CentCFG: tick_time_useg"));
       if (!file_cfg.close()) {
         log(PSTR("CentCFG: file close error"));
         log(file_name);
@@ -157,10 +157,10 @@ void CentCFG::print()
   Serial.print(PSTR("file_name:")); Serial.println(file_name);
   Serial.print(PSTR("nch:")); Serial.println(nch);
   Serial.print(PSTR("average:")); Serial.println(average);
-  Serial.print(PSTR("tick_time_usec:")); Serial.println(tick_time_usec);
+  Serial.print(PSTR("tick_time_useg:")); Serial.println(tick_time_useg);
   Serial.print(PSTR("time_type:")); Serial.println(time_type);
   Serial.print(PSTR("time_begin_seg:")); Serial.println(time_begin_seg);
-  Serial.print(PSTR("time_begin_seg:")); Serial.println(time_begin_seg);
+  Serial.print(PSTR("time_end_seg:")); Serial.println(time_end_seg);
   Serial.print(PSTR("adc_buffer_size:")); Serial.println(adc_buffer_size);
   Serial.print(PSTR("sd_buffer_size:")); Serial.println(sd_buffer_size);
   Serial.print(PSTR("F_BUS:")); Serial.println(F_BUS);

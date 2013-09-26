@@ -25,7 +25,7 @@
 #define FILE_NAME_SIZE 13
 
 #define MAX_NCH 10
-#define MIN_TICK_TIME_USEC 100
+#define MIN_TICK_TIME_USEG 100
 
 class CentCFG {
 public:
@@ -33,7 +33,7 @@ public:
 
   uint8_t nch = 3;
   uint8_t average = 2; //  0->4, 1->8, 2->16, 3->32
-  uint32_t tick_time_usec = 125; // 8ksps
+  uint32_t tick_time_useg = 125; // 8ksps
 
   uint8_t time_type = 0;
   uint32_t time_begin_seg = 30;
@@ -86,9 +86,9 @@ public:
     if (0 < nch && nch < MAX_NCH) this->nch = nch;
   }
 
-  void set_tick_time_usec(uint16_t tick_time_usec)
+  void set_tick_time_useg(uint16_t tick_time_useg)
   {
-    if (tick_time_usec >= MIN_TICK_TIME_USEC) this->tick_time_usec = tick_time_usec;
+    if (tick_time_useg >= MIN_TICK_TIME_USEG) this->tick_time_useg = tick_time_useg;
   }
 
   void set_time_type(uint8_t time_type)
