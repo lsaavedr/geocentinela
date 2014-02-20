@@ -1,4 +1,4 @@
-package cl.timining.centinela;
+package cl.timining.geocentinela;
 
 import android.content.ContentValues;
 import android.content.Context;

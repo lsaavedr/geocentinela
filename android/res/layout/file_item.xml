@@ -3,38 +3,37 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent" >
 
+    <TextView
+        android:id="@+id/filename"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentLeft="true"
+        android:layout_alignParentTop="true"
+        android:paddingTop="14dp"
+        android:text="Nombre" />
+
     <Button
         android:id="@+id/rmfile"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_alignParentRight="true"
-        android:layout_alignParentTop="true"
-        android:text="Remove" />
+        android:layout_below="@+id/filename"
+        android:text="Eliminar" />
 
     <Button
         android:id="@+id/viewfile"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_alignParentTop="true"
+        android:layout_below="@+id/filename"
         android:layout_toLeftOf="@+id/rmfile"
-        android:text="View" />
+        android:text="Vista Previa" />
 
     <Button
         android:id="@+id/getfile"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_alignParentTop="true"
+        android:layout_below="@+id/filename"
         android:layout_toLeftOf="@+id/viewfile"
-        android:text="Get" />
-
-    <TextView
-        android:id="@+id/filename"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_alignParentTop="true"
-        android:layout_marginRight="14dp"
-        android:layout_toLeftOf="@+id/getfile"
-        android:paddingTop="14dp"
-        android:text="name" />
+        android:text="Obtener" />
 
 </RelativeLayout>

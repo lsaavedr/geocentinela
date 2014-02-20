@@ -1,4 +1,4 @@
-package cl.timining.centinela;
+package cl.timining.geocentinela;
 
 import java.io.IOException;
 import java.util.concurrent.ExecutorService;
@@ -15,6 +15,7 @@ import android.hardware.usb.UsbManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.text.method.ScrollingMovementMethod;
+import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.CheckBox;
@@ -27,8 +28,9 @@ import com.hoho.android.usbserial.driver.UsbSerialDriver;
 import com.hoho.android.usbserial.driver.UsbSerialProber;
 import com.hoho.android.usbserial.util.SerialInputOutputManager;
 
-public class SettingsActivity extends Activity {
-	//private static final String TAG = "SettingsActivity";
+public class SettingsActivity extends Activity
+{
+	private static final String TAG = "SettingsActivity";
 
 	private final ExecutorService exec = Executors.newSingleThreadExecutor();
 
@@ -37,17 +39,21 @@ public class SettingsActivity extends Activity {
 	private SerialInputOutputManager ioManager;
 	private SerialInputOutputManager.Listener ioListener = new SerialInputOutputManager.Listener() {
 		@Override
-		public void onNewData(final byte[] data) {
+		public void onNewData(final byte[] data)
+		{
 			SettingsActivity.this.runOnUiThread(new Runnable() {
 				@Override
-				public void run() {
-					MainActivityCentinela.updateDataIn(SettingsActivity.this, data);
+				public void run()
+				{
+					log.setText(""+data);
+					MainActivityGeoCentinela.updateDataIn(SettingsActivity.this, data);
 				}
 			});
 		}
 
 		@Override
-		public void onRunError(Exception arg0) {
+		public void onRunError(Exception arg0)
+		{
 			// TODO Auto-generated method stub
 		}
 	};
@@ -63,7 +69,8 @@ public class SettingsActivity extends Activity {
         final java.util.Formatter mFmt = new java.util.Formatter(mBuilder);
         final Object[] mArgs = new Object[1];
 
-        public String toString(int value) {
+        public String toString(int value)
+        {
             mArgs[0] = value;
             mBuilder.delete(0, mBuilder.length());
             mFmt.format("%02d", mArgs);
@@ -71,13 +78,15 @@ public class SettingsActivity extends Activity {
         }
 
 		@Override
-		public String format(int value) {
+		public String format(int value)
+		{
 			// TODO Auto-generated method stub
 			return this.toString(value);
 		}
     };
 
-    private static int[] getTimeNumbers(String time) {
+    private static int[] getTimeNumbers(String time)
+    {
     	String[] data = time.split(":");
     	int[] num = new int[3];
 
@@ -106,29 +115,55 @@ public class SettingsActivity extends Activity {
     }
 
 	@Override
-	protected void onCreate(Bundle savedInstanceState) {
+	protected void onCreate(Bundle savedInstanceState)
+	{
 		super.onCreate(savedInstanceState);
-		setContentView(R.layout.main_settings_centinela);
+		setContentView(R.layout.main_settings_geocentinela);
 
 		// Get UsbManager from Android.
 		manager = (UsbManager) getSystemService(Context.USB_SERVICE);
 
-		final TextView nch = (TextView)this.findViewById(R.id.nch);
-		nch.setOnClickListener(new View.OnClickListener() {
+		final TextView gain = (TextView)this.findViewById(R.id.gain);
+		gain.setOnClickListener(new View.OnClickListener() {
 			@Override
-			public void onClick(View arg0) {
+			public void onClick(View arg0)
+			{
 				final Dialog dialog = new Dialog(SettingsActivity.this);
 				dialog.setContentView(R.layout.number_picker);
 
 				final NumberPicker np = (NumberPicker) dialog.findViewById(R.id.np);
-				np.setMinValue(1);
-				np.setMaxValue(9);
+				final String[] values = new String[]{ "0.125", "0.25", "0.5", "1.0", "2.0", "4.0", "8.0", "16.0"};
+				np.setMinValue(0);
+				np.setMaxValue(values.length-1);
+				np.setDisplayedValues(values);
+
+				String gain_str = gain.getText().toString();
+				if (gain_str.length() > 0) {
+					if (gain_str.indexOf("0.125") >= 0) {
+						np.setValue(0);
+					} else if (gain_str.indexOf("0.25") >= 0) {
+						np.setValue(1);
+					} else if (gain_str.indexOf("0.5") >= 0) {
+						np.setValue(2);
+					} else if (gain_str.indexOf("16") >= 0) {
+						np.setValue(7);
+					} else if (gain_str.indexOf("1") >= 0) {
+						np.setValue(3);
+					} else if (gain_str.indexOf("2") >= 0) {
+						np.setValue(4);
+					} else if (gain_str.indexOf("4") >= 0) {
+						np.setValue(5);
+					} else if (gain_str.indexOf("8") >= 0) {
+						np.setValue(6);
+					}
+				}
 
 				Button ok = (Button)dialog.findViewById(R.id.ok);
 				ok.setOnClickListener(new View.OnClickListener() {
 		            @Override
-		            public void onClick(View v) {
-		            	nch.setText(""+np.getValue());
+		            public void onClick(View v)
+		            {
+		            	gain.setText(""+values[np.getValue()]);
 		            	dialog.dismiss();
 		            }
 		        });
@@ -136,7 +171,8 @@ public class SettingsActivity extends Activity {
 				Button cancel = (Button)dialog.findViewById(R.id.cancel);
 				cancel.setOnClickListener(new View.OnClickListener() {
 		            @Override
-		            public void onClick(View v) {
+		            public void onClick(View v)
+		            {
 		            	dialog.dismiss();
 		            }
 		        });
@@ -148,18 +184,30 @@ public class SettingsActivity extends Activity {
 		final TextView sps = (TextView)this.findViewById(R.id.sps);
 		sps.setOnClickListener(new View.OnClickListener() {
 			@Override
-			public void onClick(View arg0) {
+			public void onClick(View arg0)
+			{
 				final Dialog dialog = new Dialog(SettingsActivity.this);
 				dialog.setContentView(R.layout.number_picker);
 
 				final NumberPicker np = (NumberPicker) dialog.findViewById(R.id.np);
 				np.setMinValue(1);
-				np.setMaxValue(10);
+				np.setMaxValue(8);
+
+				String sps_str = sps.getText().toString();
+				if (sps_str.length() > 0) {
+					try {
+						int sps_int = Integer.parseInt(sps_str);
+						np.setValue(sps_int);
+					} catch(Exception e) {
+						// TODO
+					}
+				}
 
 				Button ok = (Button)dialog.findViewById(R.id.ok);
 				ok.setOnClickListener(new View.OnClickListener() {
 		            @Override
-		            public void onClick(View v) {
+		            public void onClick(View v)
+		            {
 		            	sps.setText(""+np.getValue());
 		            	dialog.dismiss();
 		            }
@@ -168,7 +216,8 @@ public class SettingsActivity extends Activity {
 				Button cancel = (Button)dialog.findViewById(R.id.cancel);
 				cancel.setOnClickListener(new View.OnClickListener() {
 		            @Override
-		            public void onClick(View v) {
+		            public void onClick(View v)
+		            {
 		            	dialog.dismiss();
 		            }
 		        });
@@ -180,7 +229,8 @@ public class SettingsActivity extends Activity {
 		final TextView haverage = (TextView)this.findViewById(R.id.haverage);
 		haverage.setOnClickListener(new View.OnClickListener() {
 			@Override
-			public void onClick(View arg0) {
+			public void onClick(View arg0)
+			{
 				final Dialog dialog = new Dialog(SettingsActivity.this);
 				dialog.setContentView(R.layout.number_picker);
 
@@ -190,10 +240,37 @@ public class SettingsActivity extends Activity {
 				np.setMaxValue(values.length-1);
 				np.setDisplayedValues(values);
 
+				String haverage_str = haverage.getText().toString();
+				if (haverage.length() > 0) {
+					try {
+						int haverage_int = Integer.parseInt(haverage_str);
+						switch(haverage_int) {
+						case 0:
+							np.setValue(0);
+							break;
+						case 4:
+							np.setValue(1);
+							break;
+						case 8:
+							np.setValue(2);
+							break;
+						case 16:
+							np.setValue(3);
+							break;
+						case 32:
+							np.setValue(4);
+							break;
+						}
+					} catch(Exception e) {
+						// TODO
+					}
+				}
+
 				Button ok = (Button)dialog.findViewById(R.id.ok);
 				ok.setOnClickListener(new View.OnClickListener() {
 		            @Override
-		            public void onClick(View v) {
+		            public void onClick(View v)
+		            {
 		            	haverage.setText(""+values[np.getValue()]);
 		            	dialog.dismiss();
 		            }
@@ -202,41 +279,8 @@ public class SettingsActivity extends Activity {
 				Button cancel = (Button)dialog.findViewById(R.id.cancel);
 				cancel.setOnClickListener(new View.OnClickListener() {
 		            @Override
-		            public void onClick(View v) {
-		            	dialog.dismiss();
-		            }
-		        });
-
-				dialog.show();
-			}
-		});
-
-		final TextView dtime = (TextView)this.findViewById(R.id.dtime);
-		dtime.setOnClickListener(new View.OnClickListener() {
-			@Override
-			public void onClick(View arg0) {
-				final Dialog dialog = new Dialog(SettingsActivity.this);
-				dialog.setContentView(R.layout.number_picker);
-
-				final NumberPicker np = (NumberPicker) dialog.findViewById(R.id.np);
-				final String[] values = new String[]{ "5", "10", "15", "20"};
-				np.setMinValue(0);
-				np.setMaxValue(values.length-1);
-				np.setDisplayedValues(values);
-
-				Button ok = (Button)dialog.findViewById(R.id.ok);
-				ok.setOnClickListener(new View.OnClickListener() {
-		            @Override
-		            public void onClick(View v) {
-		            	dtime.setText(""+values[np.getValue()]);
-		            	dialog.dismiss();
-		            }
-		        });
-
-				Button cancel = (Button)dialog.findViewById(R.id.cancel);
-				cancel.setOnClickListener(new View.OnClickListener() {
-		            @Override
-		            public void onClick(View v) {
+		            public void onClick(View v)
+		            {
 		            	dialog.dismiss();
 		            }
 		        });
@@ -253,7 +297,8 @@ public class SettingsActivity extends Activity {
 
 		chrono.setOnClickListener(new View.OnClickListener() {
 			@Override
-			public void onClick(View arg0) {
+			public void onClick(View arg0)
+			{
 				daily.setChecked(false);
 				daily_layout.setEnabled(false);
 				daily_layout.setVisibility(View.INVISIBLE);
@@ -264,7 +309,8 @@ public class SettingsActivity extends Activity {
 		});
 		daily.setOnClickListener(new View.OnClickListener() {
 			@Override
-			public void onClick(View arg0) {
+			public void onClick(View arg0)
+			{
 				chrono.setChecked(false);
 				chrono_layout.setEnabled(false);
 				chrono_layout.setVisibility(View.INVISIBLE);
@@ -277,7 +323,8 @@ public class SettingsActivity extends Activity {
 		final TextView delay = (TextView)this.findViewById(R.id.delay);
 		delay.setOnClickListener(new View.OnClickListener() {
 			@Override
-			public void onClick(View v) {
+			public void onClick(View v)
+			{
 				if (!chrono.isChecked()) chrono.performClick();
 
 				// get time
@@ -311,7 +358,8 @@ public class SettingsActivity extends Activity {
 
 				alert.setPositiveButton("Ok", new DialogInterface.OnClickListener() {
                     @Override
-                    public void onClick(DialogInterface dialog, int which) {
+                    public void onClick(DialogInterface dialog, int which)
+                    {
                     	String hour_str = ""+hour.getValue();
                     	if (hour.getValue() < 10) hour_str = "0"+hour.getValue();
 
@@ -332,7 +380,8 @@ public class SettingsActivity extends Activity {
 		final TextView lapse = (TextView)this.findViewById(R.id.lapse);
 		lapse.setOnClickListener(new View.OnClickListener() {
 			@Override
-			public void onClick(View v) {
+			public void onClick(View v)
+			{
 				if (!chrono.isChecked()) chrono.performClick();
 
 				// get time
@@ -366,7 +415,8 @@ public class SettingsActivity extends Activity {
 
 				alert.setPositiveButton("Ok", new DialogInterface.OnClickListener() {
                     @Override
-                    public void onClick(DialogInterface dialog, int which) {
+                    public void onClick(DialogInterface dialog, int which)
+                    {
                     	String hour_str = ""+hour.getValue();
                     	if (hour.getValue() < 10) hour_str = "0"+hour.getValue();
 
@@ -387,7 +437,8 @@ public class SettingsActivity extends Activity {
 		final TextView begin = (TextView)this.findViewById(R.id.begin);
 		begin.setOnClickListener(new View.OnClickListener() {
 			@Override
-			public void onClick(View v) {
+			public void onClick(View v)
+			{
 				if (!daily.isChecked()) daily.performClick();
 
 				// get time
@@ -395,7 +446,8 @@ public class SettingsActivity extends Activity {
 
 				TimePickerDialog tp = new TimePickerDialog(SettingsActivity.this, new TimePickerDialog.OnTimeSetListener() {
 					@Override
-					public void onTimeSet(TimePicker view, int hourOfDay, int minute) {
+					public void onTimeSet(TimePicker view, int hourOfDay, int minute)
+					{
 						// TODO Auto-generated method stub
 						if (minute > 9 && hourOfDay > 9)
 							begin.setText(""+hourOfDay+":"+minute);
@@ -415,7 +467,8 @@ public class SettingsActivity extends Activity {
 		final TextView end = (TextView)this.findViewById(R.id.end);
 		end.setOnClickListener(new View.OnClickListener() {
 			@Override
-			public void onClick(View v) {
+			public void onClick(View v)
+			{
 				if (!daily.isChecked()) daily.performClick();
 
 				// get time
@@ -423,7 +476,8 @@ public class SettingsActivity extends Activity {
 
 				TimePickerDialog tp = new TimePickerDialog(SettingsActivity.this, new TimePickerDialog.OnTimeSetListener() {
 					@Override
-					public void onTimeSet(TimePicker view, int hourOfDay, int minute) {
+					public void onTimeSet(TimePicker view, int hourOfDay, int minute)
+					{
 						// TODO Auto-generated method stub
 						if (minute > 9 && hourOfDay > 9)
 							end.setText(""+hourOfDay+":"+minute);
@@ -443,15 +497,41 @@ public class SettingsActivity extends Activity {
 		Button save = (Button)this.findViewById(R.id.save);
 		save.setOnClickListener(new View.OnClickListener() {
             @Override
-            public void onClick(View v) {
-            	String str_nch = nch.getText().toString();
-            	String str_sps = sps.getText().toString();
+            public void onClick(View v)
+            {
+            	String str_gain = gain.getText().toString();
             	String str_haverage = haverage.getText().toString();
-            	String str_dtime = dtime.getText().toString();
+            	String str_sps = sps.getText().toString();
 
-            	if (str_nch.length() > 0) {
-            		int int_nch = Integer.parseInt(str_nch);
-            		sendCmd(new byte[] { 's', 'n', (byte)(int_nch & 0xff) });
+            	String str_delay = delay.getText().toString();
+            	String str_lapse = lapse.getText().toString();
+            	String str_begin = begin.getText().toString();
+            	String str_end = end.getText().toString();
+
+            	if (str_gain.length() > 0) {
+            		if (str_gain.indexOf("0.125") >= 0) {
+            			sendCmd(new byte[] { 's', 'o', (byte)(0 & 0xff) });
+            		} else if (str_gain.indexOf("0.25") >= 0) {
+            			sendCmd(new byte[] { 's', 'o', (byte)(1 & 0xff) });
+            		} else if (str_gain.indexOf("0.5") >= 0) {
+            			sendCmd(new byte[] { 's', 'o', (byte)(2 & 0xff) });
+            		} else if (str_gain.indexOf("1.0") >= 0) {
+            			sendCmd(new byte[] { 's', 'o', (byte)(3 & 0xff) });
+            		} else if (str_gain.indexOf("2.0") >= 0) {
+            			sendCmd(new byte[] { 's', 'o', (byte)(4 & 0xff) });
+            		} else if (str_gain.indexOf("4.0") >= 0) {
+            			sendCmd(new byte[] { 's', 'o', (byte)(5 & 0xff) });
+            		} else if (str_gain.indexOf("8.0") >= 0) {
+            			sendCmd(new byte[] { 's', 'o', (byte)(6 & 0xff) });
+            		} else if (str_gain.indexOf("16.0") >= 0) {
+            			sendCmd(new byte[] { 's', 'o', (byte)(7 & 0xff) });
+            		}
+            	}
+
+            	if (str_haverage.length() > 0) {
+            		int int_haverage = Integer.parseInt(str_haverage);
+
+            		sendCmd(new byte[] { 's', 'm', (byte)(int_haverage & 0xff) });
             	}
 
             	if (str_sps.length() > 0) {
@@ -465,20 +545,46 @@ public class SettingsActivity extends Activity {
             				(byte)((usec >> 32) & 0xff)});
             	}
 
-            	if (str_dtime.length() > 0) {
-            		long long_dtime = Long.parseLong(str_dtime)*1000;
+            	if (chrono.isChecked()) {
+            		sendCmd(new byte[] { 's', 't', (byte)(0x00) });
 
-            		sendCmd(new byte[] { 's', 't',
-            				(byte)(long_dtime & 0xff),
-            				(byte)((long_dtime >> 8) & 0xff),
-            				(byte)((long_dtime >> 16) & 0xff),
-            				(byte)((long_dtime >> 32) & 0xff)});
-            	}
+            		int[] time = getTimeNumbers(str_delay);
 
-            	if (str_haverage.length() > 0) {
-            		int int_haverage = Integer.parseInt(str_haverage);
+            		long delay_long = (long)(time[0]*3600 + time[1]*60 + time[2]);
+            		sendCmd(new byte[] { 's', 'u',
+            				(byte)(delay_long & 0xff),
+            				(byte)((delay_long >> 8) & 0xff),
+            				(byte)((delay_long >> 16) & 0xff),
+            				(byte)((delay_long >> 32) & 0xff)});
 
-            		sendCmd(new byte[] { 's', 'm', (byte)(int_haverage & 0xff) });
+            		time = getTimeNumbers(str_lapse);
+
+            		long lapse_long = (long)(time[0]*3600 + time[1]*60 + time[2]);
+            		sendCmd(new byte[] { 's', 'v',
+            				(byte)(lapse_long & 0xff),
+            				(byte)((lapse_long >> 8) & 0xff),
+            				(byte)((lapse_long >> 16) & 0xff),
+            				(byte)((lapse_long >> 32) & 0xff)});
+            	} else {
+            		sendCmd(new byte[] { 's', 't', (byte)(0x01) });
+
+            		int[] time = getTimeNumbers(str_begin);
+
+            		long begin_long = (long)(time[0]*3600 + time[1]*60);
+            		sendCmd(new byte[] { 's', 'u',
+            				(byte)(begin_long & 0xff),
+            				(byte)((begin_long >> 8) & 0xff),
+            				(byte)((begin_long >> 16) & 0xff),
+            				(byte)((begin_long >> 32) & 0xff)});
+
+            		time = getTimeNumbers(str_end);
+
+            		long end_long = (long)(time[0]*3600 + time[1]*60);
+            		sendCmd(new byte[] { 's', 'v',
+            				(byte)(end_long & 0xff),
+            				(byte)((end_long >> 8) & 0xff),
+            				(byte)((end_long >> 16) & 0xff),
+            				(byte)((end_long >> 32) & 0xff)});
             	}
 
             	finish();
@@ -488,38 +594,43 @@ public class SettingsActivity extends Activity {
 		Button refresh = (Button)this.findViewById(R.id.refresh);
 		refresh.setOnClickListener(new View.OnClickListener() {
             @Override
-            public void onClick(View v) {
+            public void onClick(View v)
+            {
     			sendCmd(new byte[] { 's', 'g' });
             }
         });
 
 		log = (TextView)this.findViewById(R.id.log);
-		log.setTextColor(Color.parseColor("#e1bd16"));
-		log.setBackgroundColor(Color.parseColor("#38c175"));
+		log.setTextColor(Color.parseColor("#000000"));
+		log.setBackgroundColor(Color.parseColor("#ff6600"));
 		log.setMovementMethod(new ScrollingMovementMethod());
 	}
 
-	private void startIOManager() {
+	private void startIOManager()
+	{
 		if (device != null) {
 			ioManager = new SerialInputOutputManager(device, ioListener);
 			exec.submit(ioManager);
 		}
 	}
 
-	private void stopIOManager () {
+	private void stopIOManager()
+	{
 		if (ioManager != null) {
 			ioManager.stop();
 			ioManager = null;
 		}
 	}
 
-	private void restartIOManager() {
+	private void restartIOManager()
+	{
 		stopIOManager();
 		startIOManager();
 	}
 
 	@Override
-	protected void onPause() {
+	protected void onPause()
+	{
 		super.onPause();
 		stopIOManager();
 
@@ -535,7 +646,8 @@ public class SettingsActivity extends Activity {
 	}
 
 	@Override
-	protected void onResume() {
+	protected void onResume()
+	{
 		super.onResume();
 
 		device = UsbSerialProber.acquire(manager);
@@ -544,7 +656,7 @@ public class SettingsActivity extends Activity {
 		} else {
 			try {
 				device.open();
-				device.setBaudRate(MainActivityCentinela.baudrate);
+				device.setBaudRate(MainActivityGeoCentinela.baudrate);
 			} catch (IOException e) {
 				e.printStackTrace();
 				log.setText("Error opening device: " + e.getMessage());
@@ -565,7 +677,8 @@ public class SettingsActivity extends Activity {
 		Handler handler = new Handler();
 		handler.postDelayed(new Runnable() {
 		  @Override
-		  public void run() {
+		  public void run()
+		  {
 			  sendCmd(new byte[] { 's', 'g' });
 		  }
 		}, 150);
@@ -585,17 +698,21 @@ public class SettingsActivity extends Activity {
 		super.onDestroy();
 	}
 
-	public void sendCmd(byte[] cmd) {
+	public void sendCmd(byte[] cmd)
+	{
+		Log.v(TAG, "device:"+device+":cmd:"+new String(cmd));
 		if (device == null) {
 			log.setText("No serial device.");
 			return;
 		}
 
 		try {
-			device.write(cmd, MainActivityCentinela.timeout);
+			device.write(cmd, MainActivityGeoCentinela.timeout);
+			Log.v(TAG, "device:"+device+":cmd:"+new String(cmd));
 		} catch (IOException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
+			log.setText("serial exception");
 		}
 	}
 
@@ -612,16 +729,22 @@ public class SettingsActivity extends Activity {
 		}
 	}
 
-	public void refreshGUI(int nch, int average, long tick_time_usec, long time_max_msec)
+	public void refreshGUI(int gain, int average, long tick_time_usec,
+			int time_type, long time_begin_seg, long time_end_seg)
 	{
-		TextView nchview = (TextView)this.findViewById(R.id.nch);
+		TextView gainview = (TextView)this.findViewById(R.id.gain);
 		TextView sps = (TextView)this.findViewById(R.id.sps);
-		TextView dtime = (TextView)this.findViewById(R.id.dtime);
 		TextView haverage = (TextView)this.findViewById(R.id.haverage);
 
-		nchview.setText(""+nch);
-		sps.setText(""+(long)(1000.0/tick_time_usec));
-		dtime.setText(""+(long)(time_max_msec/1000.0));
+		TextView delay = (TextView)this.findViewById(R.id.delay);
+		TextView lapse = (TextView)this.findViewById(R.id.lapse);
+		TextView begin = (TextView)this.findViewById(R.id.begin);
+		TextView end = (TextView)this.findViewById(R.id.end);
+
+		CheckBox chrono = (CheckBox)this.findViewById(R.id.chrono);
+		CheckBox daily = (CheckBox)this.findViewById(R.id.daily);
+
+		gainview.setText(""+((Math.pow(2,gain))/8.0));
 
 		switch (average) {
 		case 0:
@@ -641,5 +764,20 @@ public class SettingsActivity extends Activity {
 			break;
 		}
 		haverage.setText(""+average);
+
+		sps.setText(""+(long)(1000.0/tick_time_usec));
+
+		switch(time_type) {
+		case 0:
+			chrono.performClick();
+			delay.setText(""+((time_begin_seg%86400)/3600)+":"+((time_begin_seg%3600)/60)+":"+(time_begin_seg%60));
+			lapse.setText(""+((time_end_seg%86400)/3600)+":"+((time_end_seg%3600)/60)+":"+(time_end_seg%60));
+			break;
+		case 1:
+			daily.performClick();
+			begin.setText(""+((time_begin_seg%86400)/3600)+":"+((time_begin_seg%3600)/60)+":"+(time_begin_seg%60));
+			end.setText(""+((time_end_seg%86400)/3600)+":"+((time_end_seg%3600)/60)+":"+(time_end_seg%60));
+			break;
+		}
 	}
 }

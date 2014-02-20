@@ -15,7 +15,7 @@
         android:layout_height="wrap_content"
         android:layout_alignParentRight="true"
         android:layout_below="@+id/np"
-        android:text="ok" />
+        android:text="Ok" />
 
     <Button
         android:id="@+id/cancel"
@@ -23,6 +23,6 @@
         android:layout_height="wrap_content"
         android:layout_below="@+id/np"
         android:layout_toLeftOf="@+id/ok"
-        android:text="Cancel" />
+        android:text="Cancelar" />
 
 </RelativeLayout>

@@ -14,7 +14,7 @@
         android:layout_height="wrap_content"
         android:layout_alignParentLeft="true"
         android:layout_alignParentTop="true"
-        android:text="Save" >
+        android:text="@string/save" >
         <requestFocus />
     </Button>
 
@@ -24,33 +24,34 @@
         android:layout_height="wrap_content"
         android:layout_alignParentTop="true"
         android:layout_toRightOf="@+id/save"
-        android:text="Refresh" />
+        android:text="@string/refresh" />
 
     <TextView
-        android:id="@+id/textView1"
+        android:id="@+id/textView0"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_alignParentLeft="true"
         android:layout_below="@+id/refresh"
         android:layout_marginTop="10dp"
-        android:text="Nº Channels:" />
+        android:text="@string/gain" />
 
     <TextView
-        android:id="@+id/nch"
+        android:id="@+id/gain"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_alignTop="@+id/textView1"
+        android:layout_alignTop="@+id/textView0"
         android:layout_toRightOf="@+id/refresh"
-        android:ems="10" />
+        android:ems="10"
+        android:text="0.25" />
 
     <TextView
         android:id="@+id/textView2"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_alignParentLeft="true"
-        android:layout_below="@+id/textView1"
+        android:layout_below="@+id/textView0"
         android:layout_marginTop="10dp"
-        android:text="kSPS:" />
+        android:text="@string/ksps" />
 
     <TextView
         android:id="@+id/sps"
@@ -67,7 +68,7 @@
         android:layout_alignParentLeft="true"
         android:layout_below="@+id/textView2"
         android:layout_marginTop="10dp"
-        android:text="Hardware Average:" />
+        android:text="@string/haverage" />
 
     <TextView
         android:id="@+id/haverage"
@@ -77,30 +78,14 @@
         android:layout_toRightOf="@+id/refresh"
         android:ems="10" />
 
-    <TextView
-        android:id="@+id/textView4"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_alignParentLeft="true"
-        android:layout_below="@+id/textView3"
-        android:layout_marginTop="10dp"
-        android:text="Time Logged [s]:" />
-
-    <TextView
-        android:id="@+id/dtime"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_alignTop="@+id/textView4"
-        android:layout_toRightOf="@+id/refresh"
-        android:ems="10" />
 
     <CheckBox
         android:id="@+id/chrono"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_alignParentLeft="true"
-        android:layout_below="@+id/textView4"
-        android:text="Chronometer" />
+        android:layout_below="@+id/textView3"
+        android:text="@string/testing" />
 
     <RelativeLayout
         android:id="@+id/chrono_layout"
@@ -116,7 +101,7 @@
             android:layout_alignParentLeft="true"
             android:layout_alignParentTop="true"
             android:layout_marginLeft="50dp"
-            android:text="Delay" />
+            android:text="@string/delay" />
 
         <TextView
             android:id="@+id/delay"
@@ -125,7 +110,7 @@
             android:layout_alignParentLeft="true"
             android:layout_below="@+id/textView5"
             android:layout_marginLeft="50dp"
-            android:text="Time in (H:M:S)" />
+            android:text="@string/format_hhmmss" />
 
         <TextView
             android:id="@+id/textView6"
@@ -134,7 +119,7 @@
             android:layout_alignParentRight="true"
             android:layout_alignParentTop="true"
             android:layout_marginRight="50dp"
-            android:text="Lapse" />
+            android:text="@string/lapse" />
 
         <TextView
             android:id="@+id/lapse"
@@ -143,7 +128,7 @@
             android:layout_alignParentRight="true"
             android:layout_below="@+id/textView6"
             android:layout_marginRight="50dp"
-            android:text="Time in (H:M:S)" />
+            android:text="@string/format_hhmmss" />
 
     </RelativeLayout>
 
@@ -153,7 +138,7 @@
         android:layout_height="wrap_content"
         android:layout_alignParentLeft="true"
         android:layout_below="@+id/chrono_layout"
-        android:text="Daily" />
+        android:text="@string/daily" />
 
     <RelativeLayout
         android:id="@+id/daily_layout"
@@ -169,7 +154,7 @@
             android:layout_alignParentLeft="true"
             android:layout_alignParentTop="true"
             android:layout_marginLeft="50dp"
-            android:text="Begin" />
+            android:text="@string/begin" />
 
         <TextView
             android:id="@+id/begin"
@@ -178,7 +163,7 @@
             android:layout_alignParentLeft="true"
             android:layout_below="@+id/textView7"
             android:layout_marginLeft="50dp"
-            android:text="Time in (H:M)" />
+            android:text="@string/format_hhmm" />
 
         <TextView
             android:id="@+id/textView8"
@@ -187,7 +172,7 @@
             android:layout_alignParentRight="true"
             android:layout_alignParentTop="true"
             android:layout_marginRight="50dp"
-            android:text="End" />
+            android:text="@string/end" />
 
         <TextView
             android:id="@+id/end"
@@ -196,7 +181,7 @@
             android:layout_alignParentRight="true"
             android:layout_below="@+id/textView8"
             android:layout_marginRight="50dp"
-            android:text="Time in (H:M)" />
+            android:text="@string/format_hhmm" />
 
     </RelativeLayout>
 

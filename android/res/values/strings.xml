@@ -1,10 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <string name="app_name">Centinela</string>
-    <string name="action_settings">Settings</string>
-    <string name="hello_world">Hello world!</string>
-    <string name="title_activity_graph">Graphics</string>
-    <string name="title_activity_settings">Settings</string>
+    <string name="app_name">GeoCentinela</string>
+    <string name="action_settings">Configuración</string>
+    <string name="title_activity_graph">Gráficos</string>
+    <string name="title_activity_settings">Configuración</string>
 
+    <string name="save">Guardar</string>
+    <string name="refresh">Refrescar</string>
+
+    <string name="gain">Ganancia</string>
+    <string name="ksps">kSPS</string>
+    <string name="haverage">Hardware Average</string>
+
+    <string name="testing">Testing</string>
+    <string name="daily">Programación diaria</string>
+
+    <string name="begin">Comienzo</string>
+    <string name="end">Término</string>
+    <string name="lapse">Intervalo</string>
+    <string name="delay">Retardo</string>
+
+    <string name="format_hhmmss">[hh:mm:ss]</string>
+    <string name="format_hhmm">[hh:mm]</string>
 </resources>

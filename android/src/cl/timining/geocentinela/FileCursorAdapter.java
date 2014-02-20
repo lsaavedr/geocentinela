@@ -1,4 +1,4 @@
-package cl.timining.centinela;
+package cl.timining.geocentinela;
 
 import java.io.File;
 import java.io.IOException;
@@ -21,10 +21,10 @@ public class FileCursorAdapter extends CursorAdapter
     private final LayoutInflater inflater;
 
     int timeout = 1000;
-    
+
 	public FileCursorAdapter(Context context, Cursor cursor)
 	{
-		super(context, cursor);	
+		super(context, cursor);
 		this.context = context;
 		this.inflater = LayoutInflater.from(context);
 	}
@@ -35,11 +35,11 @@ public class FileCursorAdapter extends CursorAdapter
 		final String name = cursor.getString(cursor.getColumnIndex("name"));
 		int _status = cursor.getInt(cursor.getColumnIndex("status"));
 
-		final File file = new File(MainActivityCentinela.dir, name);
+		final File file = new File(MainActivityGeoCentinela.dir, name);
 		if (_status==0 && file.exists()) {
 			_status = 1;
-			if (((MainActivityCentinela)this.context).dbhelper!=null)
-				((MainActivityCentinela)this.context).dbhelper.updateStatus(name, _status);
+			if (((MainActivityGeoCentinela)this.context).dbHelper!=null)
+				((MainActivityGeoCentinela)this.context).dbHelper.updateStatus(name, _status);
 		}
 		final int status = _status;
 
@@ -52,7 +52,7 @@ public class FileCursorAdapter extends CursorAdapter
         getFile.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-            	
+
             	if (status == 0) {
                 	char[] nameBytes = name.toCharArray();
                 	byte[] cmd = new byte[nameBytes.length+1];
@@ -60,7 +60,7 @@ public class FileCursorAdapter extends CursorAdapter
                 	for (int i = 0; i < nameBytes.length; i++) cmd[i+1] = (byte) nameBytes[i];
                 	sendCmd(cmd);
                 	Log.v(TAG, new String(cmd));
-                	Log.v(TAG, "device:"+((MainActivityCentinela)FileCursorAdapter.this.context).device);
+                	Log.v(TAG, "device:"+((MainActivityGeoCentinela)FileCursorAdapter.this.context).device);
             	}
             }
         });
@@ -86,10 +86,10 @@ public class FileCursorAdapter extends CursorAdapter
             	for (int i = 0; i < nameBytes.length; i++) cmd[i+1] = (byte) nameBytes[i];
             	sendCmd(cmd);
             	Log.v(TAG, new String(cmd));
-            	Log.v(TAG, "device:"+((MainActivityCentinela)FileCursorAdapter.this.context).device);
+            	Log.v(TAG, "device:"+((MainActivityGeoCentinela)FileCursorAdapter.this.context).device);
 
-            	if (((MainActivityCentinela)FileCursorAdapter.this.context).dbhelper!=null)
-            		((MainActivityCentinela)FileCursorAdapter.this.context).dbhelper.rmFile(name);
+            	if (((MainActivityGeoCentinela)FileCursorAdapter.this.context).dbHelper!=null)
+            		((MainActivityGeoCentinela)FileCursorAdapter.this.context).dbHelper.rmFile(name);
             	if (file.exists()) file.delete();
             	sendCmd(new byte[] { 'l' });
             }
@@ -105,10 +105,10 @@ public class FileCursorAdapter extends CursorAdapter
 	}
 
 	private void sendCmd(byte[] cmd) {
-		if (((MainActivityCentinela)this.context).device == null) return;
+		if (((MainActivityGeoCentinela)this.context).device == null) return;
 
 		try {
-			((MainActivityCentinela)this.context).device.write(cmd, timeout);
+			((MainActivityGeoCentinela)this.context).device.write(cmd, timeout);
 		} catch (IOException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();

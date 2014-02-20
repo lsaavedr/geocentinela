@@ -1,4 +1,4 @@
-package cl.timining.centinela;
+package cl.timining.geocentinela;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -9,12 +9,12 @@ import java.util.concurrent.Executors;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
+import android.database.Cursor;
 import android.graphics.Color;
 import android.hardware.usb.UsbManager;
 import android.os.Bundle;
 import android.os.Environment;
 import android.text.method.ScrollingMovementMethod;
-import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
@@ -26,8 +26,9 @@ import com.hoho.android.usbserial.driver.UsbSerialDriver;
 import com.hoho.android.usbserial.driver.UsbSerialProber;
 import com.hoho.android.usbserial.util.SerialInputOutputManager;
 
-public class MainActivityCentinela extends Activity {
-	private static final String TAG = "MainActivityCentinela";
+public class MainActivityGeoCentinela extends Activity
+{
+	// private static final String TAG = "MainActivityGeoCentinela";
 
 	private final ExecutorService exec = Executors.newSingleThreadExecutor();
 
@@ -37,22 +38,25 @@ public class MainActivityCentinela extends Activity {
 	private SerialInputOutputManager.Listener ioListener = new SerialInputOutputManager.Listener() {
 		@Override
 		public void onNewData(final byte[] data) {
-			MainActivityCentinela.this.runOnUiThread(new Runnable() {
+			MainActivityGeoCentinela.this.runOnUiThread(new Runnable() {
 				@Override
 				public void run() {
-					MainActivityCentinela.updateDataIn(MainActivityCentinela.this, data);
+					log.setText(""+data);
+					MainActivityGeoCentinela.updateDataIn(MainActivityGeoCentinela.this, data);
 				}
 			});
 		}
 
 		@Override
 		public void onRunError(Exception arg0) {
-			// TODO Auto-generated method stub			
-		}	
+			// TODO Auto-generated method stub
+		}
 	};
 
-	public DBHelper dbhelper;
-	static public final File dir = new File(Environment.getExternalStorageDirectory(), "Centinela");
+	public DBHelper dbHelper;
+    public Cursor filesCursor;
+
+	static public final File dir = new File(Environment.getExternalStorageDirectory(), "GeoCentinela");
 	private String filename;
 	private FileOutputStream outputStream;
 	private int dataCount = 0;
@@ -63,16 +67,17 @@ public class MainActivityCentinela extends Activity {
 	static public int log_cmd = 0;
 
 	@Override
-	protected void onCreate(Bundle savedInstanceState) {
+	protected void onCreate(Bundle savedInstanceState)
+	{
 		super.onCreate(savedInstanceState);
-		setContentView(R.layout.main_activity_centinela);
+		setContentView(R.layout.main_activity_geocentinela);
 
 		// Get UsbManager from Android.
         manager = (UsbManager) getSystemService(Context.USB_SERVICE);
 
         log = (TextView)this.findViewById(R.id.log);
-        log.setTextColor(Color.parseColor("#e1bd16"));
-        log.setBackgroundColor(Color.parseColor("#38c175"));
+        log.setTextColor(Color.parseColor("#000000"));
+        log.setBackgroundColor(Color.parseColor("#ff6600"));
         log.setMovementMethod(new ScrollingMovementMethod());
 
         Button start = (Button)this.findViewById(R.id.start);
@@ -93,16 +98,18 @@ public class MainActivityCentinela extends Activity {
 
         if (!dir.exists()) dir.mkdirs();
 
-        dbhelper = new DBHelper(this);
+        dbHelper = new DBHelper(this);
+        filesCursor = dbHelper.getFilesCursor();
 
-        FileCursorAdapter adapter = new FileCursorAdapter(this, dbhelper.getFilesCursor());
+        FileCursorAdapter adapter = new FileCursorAdapter(this, filesCursor);
 
 		ListView listView = (ListView) findViewById(R.id.listFiles);
 		listView.setAdapter(adapter);
 	}
 
 	@Override
-	protected void onPause() {
+	protected void onPause()
+	{
 		super.onPause();
 		stopIOManager();
 
@@ -118,7 +125,8 @@ public class MainActivityCentinela extends Activity {
 	}
 
 	@Override
-	protected void onResume() {
+	protected void onResume()
+	{
 		super.onResume();
 
 		device = UsbSerialProber.acquire(manager);
@@ -156,19 +164,25 @@ public class MainActivityCentinela extends Activity {
 				// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
-	    }
+		}
+
+		if (dbHelper!=null) dbHelper.close();
+		if (filesCursor!=null && !filesCursor.isClosed()) filesCursor.close();
+
 		super.onDestroy();
 	}
 
 	@Override
-	public boolean onCreateOptionsMenu(Menu menu) {
+	public boolean onCreateOptionsMenu(Menu menu)
+	{
 		// Inflate the menu; this adds items to the action bar if it is present.
-		getMenuInflater().inflate(R.menu.main_activity_centinela, menu);
+		getMenuInflater().inflate(R.menu.main_activity_geocentinela, menu);
 		return true;
 	}
 
 	@Override
-    public boolean onOptionsItemSelected(MenuItem item) {
+    public boolean onOptionsItemSelected(MenuItem item)
+	{
         switch (item.getItemId()) {
         case (R.id.action_settings):
     		Intent settings = new Intent(this, SettingsActivity.class);
@@ -178,27 +192,30 @@ public class MainActivityCentinela extends Activity {
         return super.onOptionsItemSelected(item);
     }
 
-	private void startIOManager() {
+	private void startIOManager()
+	{
 		if (device != null) {
 			ioManager = new SerialInputOutputManager(device, ioListener);
 			exec.submit(ioManager);
 		}
 	}
 
-	private void stopIOManager () {
+	private void stopIOManager ()
+	{
 		if (ioManager != null) {
 			ioManager.stop();
 			ioManager = null;
 		}
 	}
 
-	private void restartIOManager() {
+	private void restartIOManager()
+	{
 		stopIOManager();
 		startIOManager();
 	}
 
-	private void sendCmd(byte[] cmd) {
-		Log.v(TAG, "device:"+device+":cmd:"+new String(cmd));
+	private void sendCmd(byte[] cmd)
+	{
 		if (device == null) {
 			log.setText("No serial device.");
 			return;
@@ -209,17 +226,13 @@ public class MainActivityCentinela extends Activity {
 		} catch (IOException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
+			log.setText("serial exception");
 		}
 	}
 
-	static public void updateDataIn(Context context, byte[] data) {
+	static public void updateDataIn(Context context, byte[] data)
+	{
 		int head_length = 9;
-		if (data.length > head_length) {
-			String head = "head:";
-			for (int i = 0; i <= head_length; i++)
-				head += data[i] + ":";
-			Log.v(TAG, head+data.length);
-		}
 
 		int ini = 0;
 		int end = indexOf(data, ini, (byte)-86);
@@ -235,9 +248,7 @@ public class MainActivityCentinela extends Activity {
 				end = indexOf(data, end+1, (byte)-86);
 				continue;
 			}
-			Log.v(TAG, "ini:"+ini);
-			Log.v(TAG, "end:"+end);
-			
+
 			if (end - ini > 0) {
 				byte[] subData = new byte[end-ini];
 				for (int i = 0; i < end-ini; i++) subData[i] = data[ini+i];
@@ -250,14 +261,12 @@ public class MainActivityCentinela extends Activity {
 			if (data[end+head_length] == (byte)'g') log_cmd = 4;
 			if (data[end+head_length] == (byte)'e') log_cmd = 5;
 			if (data[end+head_length] == (byte)'s') log_cmd = 6;
-			Log.v(TAG, "log_cmd:"+log_cmd);
 
 			ini = end+head_length+1;
 			end = indexOf(data, ini, (byte)-86);
 		}
 
 		if (data.length - ini > 0) {
-			Log.v(TAG, "tail...");
 			byte[] subData = new byte[data.length-ini];
 			for (int i = 0; i < data.length-ini; i++) subData[i] = data[ini+i];
 			processSubData(context, subData);
@@ -266,16 +275,13 @@ public class MainActivityCentinela extends Activity {
 
 	private static void processSubData(Context context, byte[] data)
 	{
-		Log.v(TAG, "log_cmd:"+log_cmd);
-		Log.v(TAG, "data.size:"+data.length);
-
 		FileCursorAdapter adapter;
 		ListView listView;
 
-		MainActivityCentinela mc = null;
+		MainActivityGeoCentinela mc = null;
 		SettingsActivity sa = null;
-		if (context.getClass()==MainActivityCentinela.class) {
-			mc = (MainActivityCentinela)context;
+		if (context.getClass()==MainActivityGeoCentinela.class) {
+			mc = (MainActivityGeoCentinela)context;
 		} else if (context.getClass()==SettingsActivity.class) {
 			sa = (SettingsActivity)context;
 		}
@@ -283,7 +289,6 @@ public class MainActivityCentinela extends Activity {
 		switch (log_cmd) {
 		case 1: // log
 			String message = new String (data);
-			Log.v(TAG, "data:"+message);
 
 			if (mc!=null) mc.appendLog(message);
 			if (sa!=null) sa.appendLog(message);
@@ -296,9 +301,9 @@ public class MainActivityCentinela extends Activity {
 				filelist = filelist.replace("CNT.CFG\n", ""); // remove configuration file!
 				if (filelist.length() > 0) {
 					String[] files = filelist.split("\n");
-					mc.dbhelper.addFiles(files);
+					mc.dbHelper.addFiles(files);
 				}
-				adapter = new FileCursorAdapter(context, mc.dbhelper.getFilesCursor());
+				adapter = new FileCursorAdapter(context, mc.dbHelper.getFilesCursor());
 
 				listView = (ListView) mc.findViewById(R.id.listFiles);
 				listView.setAdapter(adapter);
@@ -351,15 +356,15 @@ public class MainActivityCentinela extends Activity {
 						e.printStackTrace();
 					}
 
-					if (mc.dbhelper.updateStatus(mc.filename, 1) > 0) {
-				        adapter = new FileCursorAdapter(context, mc.dbhelper.getFilesCursor());
+					if (mc.dbHelper.updateStatus(mc.filename, 1) > 0) {
+				        adapter = new FileCursorAdapter(context, mc.dbHelper.getFilesCursor());
 						listView = (ListView) mc.findViewById(R.id.listFiles);
 						listView.setAdapter(adapter);
 
 						mc.appendLog("update:"+mc.filename+":"+mc.filename.length()+"\n");
 					}
 
-					mc.appendLog("status:"+mc.dbhelper.getStatus(mc.filename)+"\n");
+					mc.appendLog("status:"+mc.dbHelper.getStatus(mc.filename)+"\n");
 
 					mc.filename = null;
 					mc.outputStream = null;
@@ -372,33 +377,34 @@ public class MainActivityCentinela extends Activity {
 			break;
 		case 6:
 			if (sa!=null) {
-				if (data.length >=13) {
-					for (int i = 0; i < data.length; i++) Log.v(TAG, "data["+i+"]:"+(int)(data[i] & 0xff));
-
-					int nch = ((data[0] & 0xff) >> 4) & 0xf;
+				if (data.length > 17) {
+					int gain = ((data[0] & 0xff) >> 4) & 0xf;
 					int average = (data[0] & 0xff) & 0xf;
+					int time_type = data[5] & 0xff;
 
 					long tick_time_usec = 0;
-					long time_max_msec = 0;
+					long time_begin_seg = 0;
+					long time_end_seg = 0;
 					for (int i=0; i < 4; i++) {
 						tick_time_usec = (tick_time_usec << 8) + (data[4-i] & 0xff);
-						time_max_msec = (time_max_msec << 8) + (data[8-i] & 0xff);
+						time_begin_seg = (time_begin_seg << 8) + (data[9-i] & 0xff);
+						time_end_seg = (time_end_seg << 8) + (data[13-i] & 0xff);
 					}
 
 					int adc_buffer_size = 0;
 					int sd_buffer_size = 0;
 					for (int i=0; i < 2; i++) {
-						adc_buffer_size = (adc_buffer_size << 8) + (data[10-i] & 0xff);
-						sd_buffer_size = (sd_buffer_size << 8) + (data[12-i] & 0xff);
+						adc_buffer_size = (adc_buffer_size << 8) + (data[15-i] & 0xff);
+						sd_buffer_size = (sd_buffer_size << 8) + (data[17-i] & 0xff);
 					}
 
-					sa.refreshGUI(nch, average, tick_time_usec, time_max_msec);
+					sa.refreshGUI(gain, average, tick_time_usec, time_type, time_begin_seg, time_end_seg);
 				}
 			}
 			break;
 		}
 	}
-	
+
 	private static int indexOf(byte[] data, int ini, byte b)
 	{
 		for (int i = ini; i < data.length; i++) {
