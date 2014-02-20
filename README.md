@@ -1,4 +1,4 @@
-centinela
-=========
+GeoCentinela
+============
 
-Centinela Software
+GeoCentinela Software
