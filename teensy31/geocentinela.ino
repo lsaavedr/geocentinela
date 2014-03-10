@@ -48,18 +48,25 @@ volatile uint8_t gc_st = 0;     // GeoCentinela Status
 //-------------------------------
 #define FILE_FORMAT 0x01
 #define FILENAME_MAX_LENGH 11
-#define USB_PIN 9
-#define USB_WAKE PIN_9
+#define USB_PIN 2
+#define USB_WAKE PIN_2
 //-------------------------------
 #define POW0 5 // 0
 #define POW1 6 // 2
 #define POW2 7 // 4
 #define POW3 8 // 6
 //-------------------------------
-#define GAIN0 3 // 1
-#define GAIN1 0 // 3
-#define GAIN2 1 // 5
-#define GAIN3 2 // 7
+#define ASHDN 20
+//-------------------------------
+#define GAIN0 16
+#define GAIN1 19
+#define GAIN2 18
+#define GAIN3 17
+//-------------------------------
+// A0=5, A1=14, A2=8, A3=9, A4=13, A5=12, A6=6, A7=7, A8=15, A9=4
+#define ADC_CH0 5
+#define ADC_CH1 7
+#define ADC_CH2 4
 //-------------------------------
 void power_cfg()
 {
@@ -75,6 +82,9 @@ void power_cfg()
 
 void gain_cfg(uint8_t gain)
 {
+  pinMode(ASHDN, OUTPUT);
+  digitalWrite(ASHDN, HIGH);
+
   pinMode(GAIN0, OUTPUT);
 
   pinMode(GAIN3, OUTPUT);
@@ -260,11 +270,9 @@ void adc_rcfg()
    || !(gc_st & GC_ST_DMA)
    || !(gc_st & GC_ST_RBUFF)) return;
 
-  // channels config:
-  // A0=5, A1=14, A2=8, A3=9, A4=13, A5=12, A6=6, A7=7, A8=15, A9=4
-  adc_config[0] = ADC_SC1_ADCH(15);
-  adc_config[1] = ADC_SC1_ADCH(7);
-  adc_config[2] = ADC_SC1_ADCH(6);
+  adc_config[0] = ADC_SC1_ADCH(ADC_CH0);
+  adc_config[1] = ADC_SC1_ADCH(ADC_CH1);
+  adc_config[2] = ADC_SC1_ADCH(ADC_CH2);
   adc_config[3] = ADC_SC1_ADCH(31); // stop=31
 
   gc_st |= GC_ST_RADC;
@@ -385,6 +393,9 @@ void setup()
   // configure POW
   power_cfg();
 
+  // gain configuration
+  gain_cfg(gc_cfg.gain);
+
   // initialize file system
   if (!sd.begin(SS, SPI_FULL_SPEED)) {
     while (true) {
@@ -421,10 +432,7 @@ void setup()
   rcfg();
 
   // power switching
-  pow_s();
-
-  // gain configuration
-  gain_cfg(gc_cfg.gain);
+  // pow_s();
 
   // GPIO alarm wakeup
   pinMode(USB_PIN, INPUT_PULLUP);
