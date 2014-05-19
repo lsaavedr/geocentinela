@@ -12,7 +12,7 @@
 gcCFG gc_cfg(PSTR("CNT.CFG"), gc_println);
 //-------------------------------
 TEENSY3_LP lp = TEENSY3_LP();
-configSleep* lp_cfg; // sleep configuration
+sleep_block_t* lp_cfg; // sleep configuration
 //-------------------------------
 uint16_t* adc_ring_buffer = NULL;
 uint32_t* adc_config = NULL;
@@ -49,7 +49,7 @@ volatile uint8_t gc_st = 0;     // GeoCentinela Status
 #define FILE_FORMAT 0x01
 #define FILENAME_MAX_LENGH 11
 #define USB_PIN 9
-#define USB_WAKE PIN_9
+#define USB_WAKE PIN_30
 //-------------------------------
 #define POW0 5 // 0
 #define POW1 6 // 2
@@ -238,7 +238,7 @@ bool buff_rcfg()
                                          gc_cfg.adc_buffer_size_bytes);
   adc_config = (uint32_t*) calloc(4, sizeof(uint32_t));
   sd_buffer = (uint16_t*) calloc(gc_cfg.sd_buffer_size, sizeof(uint16_t));
-  lp_cfg = (configSleep*) calloc(1, sizeof(configSleep));
+  lp_cfg = (sleep_block_t*) calloc(1, sizeof(sleep_block_t));
 
   memset(adc_ring_buffer, 0, gc_cfg.adc_buffer_size_bytes);
 
@@ -433,7 +433,7 @@ void setup()
 void deep_sleep()
 {
   // reset lp_cfg
-  memset(lp_cfg, 0, sizeof(configSleep));
+  memset(lp_cfg, 0, sizeof(sleep_block_t));
 
   // OR together different wake sources
   lp_cfg->modules = GPIO_WAKE;
@@ -449,7 +449,7 @@ void deep_sleep()
 uint32_t sleep_chrono()
 {
   // reset lp_cfg
-  memset(lp_cfg, 0, sizeof(configSleep));
+  memset(lp_cfg, 0, sizeof(sleep_block_t));
 
   // OR together different wake sources
   if (gc_st & GC_ST_SLEEP) {
@@ -482,7 +482,7 @@ uint32_t sleep_chrono()
 uint32_t sleep_daily()
 {
   // reset lp_cfg
-  memset(lp_cfg, 0, sizeof(configSleep));
+  memset(lp_cfg, 0, sizeof(sleep_block_t));
 
   // OR together different wake sources
   if (gc_st & GC_ST_SLEEP) {
