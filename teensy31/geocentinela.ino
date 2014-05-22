@@ -1,11 +1,13 @@
 #include <IntervalTimer.h>
+
+#include <TinyGPS.h>
 #include <Time.h>
 
 #include <SdFat.h>
 #include <LowPower_Teensy3.h>
 
 #include <malloc.h> // needed to mamalign and calloc
-#include <cmath> // needed to log2
+#include <cmath>    // needed to log2
 
 #include "gcCFG.h"
 //-------------------------------
@@ -51,85 +53,106 @@ volatile uint8_t gc_st = 0;     // GeoCentinela Status
 #define USB_PIN 9
 #define USB_WAKE PIN_30
 //-------------------------------
-#define POW0 5 // 0
-#define POW1 6 // 2
-#define POW2 7 // 4
-#define POW3 8 // 6
+#define DIGITAL_POW 20
+#define ANALOG1_POW 21
+#define ANALOG2_POW 22
+#define DIGITAL_MASK 0b100
+#define ANALOG1_MASK 0b010
+#define ANALOG2_MASK 0b001
+#define POWER_UP_MASK 0b1000
 //-------------------------------
-#define GAIN0 3 // 1
-#define GAIN1 0 // 3
-#define GAIN2 1 // 5
-#define GAIN3 2 // 7
+#define GAIN_CS 17
+#define GAIN_A0 16
+#define GAIN_A1 15
+#define GAIN_A2 19
 //-------------------------------
-void power_cfg()
+TinyGPS gps;
+#define HOUR_OFFSET -4
+#define GPS_RTC_SYNC_TIME 5*60*1000 // 5min
+//-------------------------------
+void cfgGps()
 {
-  pinMode(POW0, OUTPUT);
-  pinMode(POW1, OUTPUT);
-  pinMode(POW2, OUTPUT);
-  pinMode(POW3, INPUT);
+  Serial1.begin(4800);
 
-  digitalWrite(POW0, LOW);
-  digitalWrite(POW1, LOW);
-  digitalWrite(POW2, LOW);
+  Serial1.println(PSTR("$PSRF103,0,0,0,1*24"));
+  Serial1.println(PSTR("$PSRF103,1,0,0,1*25"));
+  Serial1.println(PSTR("$PSRF103,2,0,0,1*26"));
+  Serial1.println(PSTR("$PSRF103,3,0,0,1*27"));
+  Serial1.println(PSTR("$PSRF103,4,0,0,1*20"));
+  Serial1.println(PSTR("$PSRF103,5,0,0,1*21"));
+  Serial1.println(PSTR("$PSRF103,6,0,0,1*22"));
+  Serial1.println(PSTR("$PSRF103,8,0,0,1*2C"));
+
+  //Serial1.println(PSTR("$PSRF103,0,0,1,1*25"));
+  Serial1.println(PSTR("$PSRF103,4,0,1,1*21"));
 }
 
-void gain_cfg(uint8_t gain)
+void cfgPow()
 {
-  pinMode(GAIN0, OUTPUT);
+  pinMode(DIGITAL_POW, OUTPUT);
+  pinMode(ANALOG1_POW, OUTPUT);
+  pinMode(ANALOG2_POW, OUTPUT);
 
-  pinMode(GAIN3, OUTPUT);
-  pinMode(GAIN2, OUTPUT);
-  pinMode(GAIN1, OUTPUT);
+  setPowerDown(7);
+}
 
-  digitalWrite(GAIN0, LOW);
+void cfgGain(uint8_t gain)
+{
+  pinMode(GAIN_CS, OUTPUT);
+
+  pinMode(GAIN_A0, OUTPUT);
+  pinMode(GAIN_A1, OUTPUT);
+  pinMode(GAIN_A2, OUTPUT);
+
+  digitalWrite(GAIN_CS, LOW);
   switch (gain) {
   case 0:
-    digitalWrite(GAIN3, LOW);
-    digitalWrite(GAIN2, LOW);
-    digitalWrite(GAIN1, LOW);
+    digitalWrite(GAIN_A0, LOW);
+    digitalWrite(GAIN_A1, LOW);
+    digitalWrite(GAIN_A2, LOW);
     break;
   case 1:
-    digitalWrite(GAIN3, HIGH);
-    digitalWrite(GAIN2, LOW);
-    digitalWrite(GAIN1, LOW);
+    digitalWrite(GAIN_A0, HIGH);
+    digitalWrite(GAIN_A1, LOW);
+    digitalWrite(GAIN_A2, LOW);
     break;
   case 2:
-    digitalWrite(GAIN3, LOW);
-    digitalWrite(GAIN2, HIGH);
-    digitalWrite(GAIN1, LOW);
+    digitalWrite(GAIN_A0, LOW);
+    digitalWrite(GAIN_A1, HIGH);
+    digitalWrite(GAIN_A2, LOW);
     break;
   case 3:
-    digitalWrite(GAIN3, HIGH);
-    digitalWrite(GAIN2, HIGH);
-    digitalWrite(GAIN1, LOW);
+    digitalWrite(GAIN_A0, HIGH);
+    digitalWrite(GAIN_A1, HIGH);
+    digitalWrite(GAIN_A2, LOW);
     break;
   case 4:
-    digitalWrite(GAIN3, LOW);
-    digitalWrite(GAIN2, LOW);
-    digitalWrite(GAIN1, HIGH);
+    digitalWrite(GAIN_A0, LOW);
+    digitalWrite(GAIN_A1, LOW);
+    digitalWrite(GAIN_A2, HIGH);
     break;
   case 5:
-    digitalWrite(GAIN3, HIGH);
-    digitalWrite(GAIN2, LOW);
-    digitalWrite(GAIN1, HIGH);
+    digitalWrite(GAIN_A0, HIGH);
+    digitalWrite(GAIN_A1, LOW);
+    digitalWrite(GAIN_A2, HIGH);
     break;
   case 6:
-    digitalWrite(GAIN3, LOW);
-    digitalWrite(GAIN2, HIGH);
-    digitalWrite(GAIN1, HIGH);
+    digitalWrite(GAIN_A0, LOW);
+    digitalWrite(GAIN_A1, HIGH);
+    digitalWrite(GAIN_A2, HIGH);
     break;
   case 7:
-    digitalWrite(GAIN3, HIGH);
-    digitalWrite(GAIN2, HIGH);
-    digitalWrite(GAIN1, HIGH);
+    digitalWrite(GAIN_A0, HIGH);
+    digitalWrite(GAIN_A1, HIGH);
+    digitalWrite(GAIN_A2, HIGH);
     break;
   default:
     break;
   }
-  digitalWrite(GAIN0, LOW);
+  digitalWrite(GAIN_CS, LOW);
 }
 
-void adc_cfg()
+void cfgAdc()
 {
   // ADC clock
   SIM_SCGC6 |= SIM_SCGC6_ADC0;
@@ -192,7 +215,7 @@ void adc_cfg()
   gc_st |= GC_ST_ADC;
 }
 
-void dma_cfg()
+void cfgDma()
 {
   // enable DMAMUX clock
   SIM_SCGC6 |= SIM_SCGC6_DMAMUX;
@@ -219,7 +242,7 @@ time_t getTeensy3Time()
   return Teensy3Clock.get();
 }
 
-bool rtc_cfg()
+bool cfgRtc()
 {
   // set the Time library to use Teensy 3.0's RTC to keep time
   setSyncProvider(getTeensy3Time);
@@ -227,7 +250,7 @@ bool rtc_cfg()
   return timeStatus() == timeSet;
 }
 
-bool buff_rcfg()
+bool rcfgBuff()
 {
   if (adc_ring_buffer) { free(adc_ring_buffer); adc_ring_buffer = NULL; }
   if (adc_config) { free(adc_config); adc_config = NULL; }
@@ -254,7 +277,7 @@ bool buff_rcfg()
   }
 }
 
-void adc_rcfg()
+void rcfgAdc()
 {
   if (!(gc_st & GC_ST_ADC)
    || !(gc_st & GC_ST_DMA)
@@ -262,15 +285,15 @@ void adc_rcfg()
 
   // channels config:
   // A0=5, A1=14, A2=8, A3=9, A4=13, A5=12, A6=6, A7=7, A8=15, A9=4
-  adc_config[0] = ADC_SC1_ADCH(15);
-  adc_config[1] = ADC_SC1_ADCH(7);
-  adc_config[2] = ADC_SC1_ADCH(6);
+  adc_config[0] = ADC_SC1_ADCH(5);
+  adc_config[1] = ADC_SC1_ADCH(13);
+  adc_config[2] = ADC_SC1_ADCH(4);
   adc_config[3] = ADC_SC1_ADCH(31); // stop=31
 
   gc_st |= GC_ST_RADC;
 }
 
-void dma_rcfg()
+void rcfgDma()
 {
   if (!(gc_st & GC_ST_ADC)
    || !(gc_st & GC_ST_DMA)
@@ -331,12 +354,12 @@ void dma_rcfg()
 void rcfg()
 {
   // reconfigure Buffer
-  if (buff_rcfg()) {
+  if (rcfgBuff()) {
     // reconfigure ADC
-    adc_rcfg();
+    rcfgAdc();
 
     // reconfigure DMA
-    dma_rcfg();
+    rcfgDma();
   } else {
     while (true) {
       gc_println(PSTR("error: buffer!"));
@@ -345,45 +368,37 @@ void rcfg()
   }
 }
 
-void pow_s()
+void setPowerUp(uint8_t mask)
 {
-  digitalWrite(POW2, HIGH);
+  if ((mask & DIGITAL_MASK) > 0)
+    digitalWrite(DIGITAL_POW, HIGH);
 
-  while (!(bool)digitalRead(POW3)) {
-    gc_println(PSTR("power: waiting!"));
-    delay(500);
-  }
+  if ((mask & ANALOG1_MASK) > 0)
+    digitalWrite(ANALOG1_POW, HIGH);
 
-  digitalWrite(POW0, HIGH);
-  delay(2);
-  digitalWrite(POW1, HIGH);
+  if ((mask & ANALOG2_MASK) > 0)
+    digitalWrite(ANALOG2_POW, HIGH);
 }
 
-void pow_l()
+void setPowerDown(uint8_t mask)
 {
-  digitalWrite(POW1, LOW);
-  delay(2);
-  digitalWrite(POW0, LOW);
-  delay(2);
-  digitalWrite(POW2, LOW);
-}
+  if ((mask & DIGITAL_MASK) > 0)
+    digitalWrite(DIGITAL_POW, LOW);
 
-void gc_power(uint8_t cmd)
-{
-  switch(cmd) {
-    case 'l': {
-      pow_l();
-    } break;
-    case 's': {
-      pow_s();
-    } break;
-  }
+  if ((mask & ANALOG1_MASK) > 0)
+    digitalWrite(ANALOG1_POW, LOW);
+
+  if ((mask & ANALOG2_MASK) > 0)
+    digitalWrite(ANALOG2_POW, LOW);
 }
 
 void setup()
 {
   // configure POW
-  power_cfg();
+  cfgPow();
+
+  // digital power up
+  setPowerUp(4);
 
   // initialize file system
   if (!sd.begin(SS, SPI_FULL_SPEED)) {
@@ -404,7 +419,7 @@ void setup()
   }
 
   // configure RTC
-  if (!rtc_cfg()) {
+  if (!cfgRtc()) {
     while (true) {
       gc_println(PSTR("error: rtc!"));
       delay(1000);
@@ -412,19 +427,16 @@ void setup()
   }
 
   // configure ADC
-  adc_cfg();
+  cfgAdc();
 
   // configure DMA
-  dma_cfg();
+  cfgDma();
 
   // reconfigure (buffer?)
   rcfg();
 
-  // power switching
-  pow_s();
-
   // gain configuration
-  gain_cfg(gc_cfg.gain);
+  cfgGain(gc_cfg.gain);
 
   // GPIO alarm wakeup
   pinMode(USB_PIN, INPUT_PULLUP);
@@ -529,6 +541,37 @@ uint32_t sleep_daily()
     if (lp_cfg->wake_source == USB_WAKE) {
       gc_st &= ~GC_ST_SLEEP;
       return 0;
+    } else { // GPS rtc sync first!
+      // GPS power on
+      setPowerUp(ANALOG1_MASK);
+
+      // cfg GPS
+      cfgGps();
+
+      // sync
+      uint8_t timeIni = millis();
+      boolean rtcSync = false;
+      while (!rtcSync && (millis() - timeIni) <= GPS_RTC_SYNC_TIME) {
+        while (Serial1.available() > 0 && !rtcSync) {
+          uint8_t c = Serial1.read();
+          Serial.write(c);
+          if (gps.encode(c)) {
+            uint32_t age;
+            int Year;
+            uint8_t Month, Day, Hour, Minute, Second;
+            gps.crack_datetime(&Year, &Month, &Day, &Hour, &Minute, &Second, NULL, &age);
+            if (age < 500) {
+              // set the Time to the latest GPS reading
+              setTime(Hour, Minute, Second, Day, Month, Year);
+              adjustTime(-4 * SECS_PER_HOUR);
+              rtcSync = true;
+            }
+          }
+        }
+      }
+
+      // GPS power off
+      setPowerDown(ANALOG1_MASK);
     }
   }
 
@@ -844,7 +887,7 @@ void loop()
                 if (length > 1) {
                   cmd = Serial.read();
                   gc_cfg.set_gain(cmd);
-                  gain_cfg(cmd);
+                  cfgGain(cmd);
 
                   write_cfg = true;
                 }
@@ -953,7 +996,8 @@ void loop()
               case 'w': {
                 if (length > 1) {
                   cmd = Serial.read();
-                  gc_power(cmd);
+                  if (cmd & POWER_UP_MASK > 0) setPowerUp(cmd);
+                  else setPowerDown(cmd);
                 }
               } break;
               default: {
@@ -973,10 +1017,10 @@ void loop()
         gc_cfg.write();
 
         // configure adc
-        adc_cfg();
+        cfgAdc();
 
         // configure DMA
-        dma_cfg();
+        cfgDma();
 
         // reconfigure
         rcfg();
