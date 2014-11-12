@@ -66,6 +66,21 @@ volatile uint8_t gc_st = 0;     // GeoCentinela Status
 #define GAIN_A1 15
 #define GAIN_A2 19
 //-------------------------------
+#define GC_ADC_A0 5
+#define GC_ADC_A1 14
+#define GC_ADC_A2 8
+#define GC_ADC_A3 9
+#define GC_ADC_A4 13
+#define GC_ADC_A5 12
+#define GC_ADC_A6 6
+#define GC_ADC_A7 7
+#define GC_ADC_A8 15
+#define GC_ADC_A9 4
+
+#define GC_ADC_CH0 GC_ADC_A3
+#define GC_ADC_CH1 GC_ADC_A6
+#define GC_ADC_CH2 GC_ADC_A9
+//-------------------------------
 TinyGPS gps;
 #define HOUR_OFFSET -4
 #define GPS_RTC_SYNC_TIME 5*60*1000 // 5min
@@ -284,10 +299,9 @@ void rcfgAdc()
    || !(gc_st & GC_ST_RBUFF)) return;
 
   // channels config:
-  // A0=5, A1=14, A2=8, A3=9, A4=13, A5=12, A6=6, A7=7, A8=15, A9=4
-  adc_config[0] = ADC_SC1_ADCH(9); // 5
-  adc_config[1] = ADC_SC1_ADCH(6); // 13
-  adc_config[2] = ADC_SC1_ADCH(4);
+  adc_config[0] = ADC_SC1_ADCH(GC_ADC_CH0);
+  adc_config[1] = ADC_SC1_ADCH(GC_ADC_CH1);
+  adc_config[2] = ADC_SC1_ADCH(GC_ADC_CH2);
   adc_config[3] = ADC_SC1_ADCH(31); // stop=31
 
   gc_st |= GC_ST_RADC;
