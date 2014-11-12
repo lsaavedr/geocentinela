@@ -50,12 +50,12 @@ volatile uint8_t gc_st = 0;     // GeoCentinela Status
 //-------------------------------
 #define FILE_FORMAT 0x01
 #define FILENAME_MAX_LENGH 11
-#define USB_PIN 9
+#define USB_PIN 30
 #define USB_WAKE PIN_30
 //-------------------------------
-#define DIGITAL_POW 20
-#define ANALOG1_POW 21
-#define ANALOG2_POW 22
+#define DIGITAL_POW 14 // 22 // 14
+#define ANALOG1_POW 21 // 21 // 22
+#define ANALOG2_POW 15 // 20 // 15
 #define DIGITAL_MASK 0b100
 #define ANALOG1_MASK 0b010
 #define ANALOG2_MASK 0b001
@@ -285,8 +285,8 @@ void rcfgAdc()
 
   // channels config:
   // A0=5, A1=14, A2=8, A3=9, A4=13, A5=12, A6=6, A7=7, A8=15, A9=4
-  adc_config[0] = ADC_SC1_ADCH(5);
-  adc_config[1] = ADC_SC1_ADCH(13);
+  adc_config[0] = ADC_SC1_ADCH(9); // 5
+  adc_config[1] = ADC_SC1_ADCH(6); // 13
   adc_config[2] = ADC_SC1_ADCH(4);
   adc_config[3] = ADC_SC1_ADCH(31); // stop=31
 
@@ -398,7 +398,11 @@ void setup()
   cfgPow();
 
   // digital power up
-  setPowerUp(4);
+  setPowerUp(DIGITAL_MASK);
+
+  // USB wakeup
+  pinMode(USB_PIN, INPUT_PULLUP);
+  *portConfigRegister(USB_PIN) = PORT_PCR_MUX(1) | PORT_PCR_PE;
 
   // initialize file system
   if (!sd.begin(SS, SPI_FULL_SPEED)) {
@@ -437,9 +441,10 @@ void setup()
 
   // gain configuration
   cfgGain(gc_cfg.gain);
+}
 
-  // GPIO alarm wakeup
-  pinMode(USB_PIN, INPUT_PULLUP);
+void callbackhandler() {
+  setSyncProvider(getTeensy3Time);
 }
 
 void deep_sleep()
@@ -452,6 +457,9 @@ void deep_sleep()
 
   // GPIO alarm wakeup
   lp_cfg->gpio_pin = USB_WAKE;
+
+  // user callback function
+  lp_cfg->callback = callbackhandler;
 
   // sleep
   lp.DeepSleep(lp_cfg);
@@ -477,6 +485,9 @@ uint32_t sleep_chrono()
   // RTC alarm wakeup in seconds:
   lp_cfg->rtc_alarm = gc_cfg.time_begin_seg;
   uint32_t dseg = gc_cfg.time_end_seg;
+
+  // user callback function
+  lp_cfg->callback = callbackhandler;
 
   // sleep
   if (lp_cfg->rtc_alarm > 0) {
@@ -533,6 +544,9 @@ uint32_t sleep_daily()
       dseg = (86400 - gc_cfg.time_begin_seg) + gc_cfg.time_end_seg;
     }
   }
+
+  // user callback function
+  lp_cfg->callback = callbackhandler;
 
   // sleep
   if (lp_cfg->rtc_alarm > 0) {
@@ -746,8 +760,11 @@ void loop()
 
       tail &= gc_cfg.adc_buffer_hash;
     }
-
+    
     if (file.writeError) {
+      while (true) {
+        Serial.println("errror");
+      }
       gc_println(PSTR("error:loop: file write!"));
 
       if (adc_rtc_stop == 0) adc_rtc_stop = Teensy3Clock.get();

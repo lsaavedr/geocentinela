@@ -42,7 +42,7 @@
         android:layout_alignTop="@+id/textView0"
         android:layout_toRightOf="@+id/refresh"
         android:ems="10"
-        android:text="0.25" />
+        android:text="1" />
 
     <TextView
         android:id="@+id/textView2"

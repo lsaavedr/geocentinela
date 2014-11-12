@@ -132,29 +132,29 @@ public class SettingsActivity extends Activity
 				dialog.setContentView(R.layout.number_picker);
 
 				final NumberPicker np = (NumberPicker) dialog.findViewById(R.id.np);
-				final String[] values = new String[]{ "0.125", "0.25", "0.5", "1.0", "2.0", "4.0", "8.0", "16.0"};
+				final String[] values = new String[]{ "1", "2", "4", "8", "16", "32", "64", "128"};
 				np.setMinValue(0);
 				np.setMaxValue(values.length-1);
 				np.setDisplayedValues(values);
 
 				String gain_str = gain.getText().toString();
 				if (gain_str.length() > 0) {
-					if (gain_str.indexOf("0.125") >= 0) {
+					if (gain_str.indexOf("1") >= 0) {
 						np.setValue(0);
-					} else if (gain_str.indexOf("0.25") >= 0) {
-						np.setValue(1);
-					} else if (gain_str.indexOf("0.5") >= 0) {
-						np.setValue(2);
-					} else if (gain_str.indexOf("16") >= 0) {
-						np.setValue(7);
-					} else if (gain_str.indexOf("1") >= 0) {
-						np.setValue(3);
 					} else if (gain_str.indexOf("2") >= 0) {
-						np.setValue(4);
+						np.setValue(1);
 					} else if (gain_str.indexOf("4") >= 0) {
-						np.setValue(5);
+						np.setValue(2);
 					} else if (gain_str.indexOf("8") >= 0) {
+						np.setValue(3);
+					} else if (gain_str.indexOf("16") >= 0) {
+						np.setValue(4);
+					} else if (gain_str.indexOf("32") >= 0) {
+						np.setValue(5);
+					} else if (gain_str.indexOf("64") >= 0) {
 						np.setValue(6);
+					} else if (gain_str.indexOf("128") >= 0) {
+						np.setValue(7);
 					}
 				}
 
@@ -509,21 +509,21 @@ public class SettingsActivity extends Activity
             	String str_end = end.getText().toString();
 
             	if (str_gain.length() > 0) {
-            		if (str_gain.indexOf("0.125") >= 0) {
+            		if (str_gain.indexOf("1") >= 0) {
             			sendCmd(new byte[] { 's', 'o', (byte)(0 & 0xff) });
-            		} else if (str_gain.indexOf("0.25") >= 0) {
+            		} else if (str_gain.indexOf("2") >= 0) {
             			sendCmd(new byte[] { 's', 'o', (byte)(1 & 0xff) });
-            		} else if (str_gain.indexOf("0.5") >= 0) {
+            		} else if (str_gain.indexOf("4") >= 0) {
             			sendCmd(new byte[] { 's', 'o', (byte)(2 & 0xff) });
-            		} else if (str_gain.indexOf("1.0") >= 0) {
+            		} else if (str_gain.indexOf("8") >= 0) {
             			sendCmd(new byte[] { 's', 'o', (byte)(3 & 0xff) });
-            		} else if (str_gain.indexOf("2.0") >= 0) {
+            		} else if (str_gain.indexOf("16") >= 0) {
             			sendCmd(new byte[] { 's', 'o', (byte)(4 & 0xff) });
-            		} else if (str_gain.indexOf("4.0") >= 0) {
+            		} else if (str_gain.indexOf("32") >= 0) {
             			sendCmd(new byte[] { 's', 'o', (byte)(5 & 0xff) });
-            		} else if (str_gain.indexOf("8.0") >= 0) {
+            		} else if (str_gain.indexOf("64") >= 0) {
             			sendCmd(new byte[] { 's', 'o', (byte)(6 & 0xff) });
-            		} else if (str_gain.indexOf("16.0") >= 0) {
+            		} else if (str_gain.indexOf("128") >= 0) {
             			sendCmd(new byte[] { 's', 'o', (byte)(7 & 0xff) });
             		}
             	}
@@ -744,7 +744,7 @@ public class SettingsActivity extends Activity
 		CheckBox chrono = (CheckBox)this.findViewById(R.id.chrono);
 		CheckBox daily = (CheckBox)this.findViewById(R.id.daily);
 
-		gainview.setText(""+((Math.pow(2,gain))/8.0));
+		gainview.setText(""+Math.pow(2,gain));
 
 		switch (average) {
 		case 0:
