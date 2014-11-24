@@ -53,18 +53,18 @@ volatile uint8_t gc_st = 0;     // GeoCentinela Status
 #define USB_PIN 30
 #define USB_WAKE PIN_30
 //-------------------------------
-#define DIGITAL_POW 14 // 22 // 14
-#define ANALOG1_POW 21 // 21 // 22
-#define ANALOG2_POW 15 // 20 // 15
+#define DIGITAL_POW 14
+#define ANALOG1_POW 22
+#define ANALOG2_POW 15
 #define DIGITAL_MASK 0b100
 #define ANALOG1_MASK 0b010
 #define ANALOG2_MASK 0b001
 #define POWER_UP_MASK 0b1000
 //-------------------------------
-#define GAIN_CS 17
-#define GAIN_A0 16
-#define GAIN_A1 15
-#define GAIN_A2 19
+#define GAIN_CS 21
+#define GAIN_A0 19
+#define GAIN_A1 16
+#define GAIN_A2 18
 //-------------------------------
 #define GC_ADC_A0 5
 #define GC_ADC_A1 14
