@@ -232,13 +232,16 @@ void cfgAdc()
 
 void cfgDma()
 {
-  // enable DMAMUX clock
+  // enable DMA and DMAMUX clock
+  SIM_SCGC7 |= SIM_SCGC7_DMA;
   SIM_SCGC6 |= SIM_SCGC6_DMAMUX;
 
   // to connect ADC with DMA
-  DMA_SERQ |= 1; // enable channel 1 requests
+  DMA_SERQ = 1; // enable channel 1 requests
 
   // channels priority
+  DMA_TCD1_CSR = 0;
+  DMA_TCD2_CSR = 0;
   DMA_CR |= DMA_CR_ERCA; // enable round robin scheduling
   //DMA_DCHPRI0 = 0;
   //DMA_DCHPRI1 = 1;
@@ -362,6 +365,16 @@ void rcfgDma()
 
   DMA_TCD2_CITER_ELINKNO = DMA_TCD2_BITER_ELINKNO = 1;
 
+  DMA_TCD2_CSR &= ~DMA_TCD_CSR_DONE;
+  DMA_TCD2_CSR = 0
+  // disable scatter/gatter processing ESG=0
+  // ERQ bit is not affected when the major loop is complete DREQ=0
+  //| DMA_TCD_CSR_MAJORELINK // enable major loop channel to channel linking
+    | DMA_TCD_CSR_BWC(0) // no eDMA engine stall
+  //  | DMA_TCD_CSR_MAJORLINKCH(2) // major loop channel to channel linking set to 2
+  //  | DMA_TCD_CSR_INTMAJOR // enable the end-of-major loop interrupt
+  ;
+
   gc_st |= GC_ST_RDMA;
 }
 
@@ -410,12 +423,9 @@ void setup()
 {
   // configure POW
   cfgPow();
-
-  // digital power up
   setPowerUp(DIGITAL_MASK);
 
-  // USB wakeup
-  pinMode(USB_PIN, INPUT_PULLUP);
+  // USB INPUT_PULLDOWN
   *portConfigRegister(USB_PIN) = PORT_PCR_MUX(1) | PORT_PCR_PE;
 
   // initialize file system
