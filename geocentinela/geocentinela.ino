@@ -232,27 +232,84 @@ void cfgAdc()
 
 void cfgDma()
 {
+  uint32_t mod = 1+log2(gc_cfg.adc_buffer_size);
+
   // enable DMA and DMAMUX clock
   SIM_SCGC7 |= SIM_SCGC7_DMA;
   SIM_SCGC6 |= SIM_SCGC6_DMAMUX;
 
+  // Clear before configure DMA channel
+  DMAMUX0_CHCFG1 = 0;
+  DMA_TCD1_CSR = 0;
+  DMA_TCD2_CSR = 0;
+
+  // channels priority
+  DMA_CR |= DMA_CR_ERCA; // enable round robin scheduling
+
+  // configure the DMA transfer control descriptor 2
+  DMA_TCD2_SADDR = &(adc_config[1]);
+  DMA_TCD2_SOFF = 4; // Nº bytes between data
+  DMA_TCD2_ATTR = 0
+    | DMA_TCD_ATTR_SMOD(0)
+    | DMA_TCD_ATTR_SSIZE(2)
+    | DMA_TCD_ATTR_DMOD(0)
+    | DMA_TCD_ATTR_DSIZE(2);
+  DMA_TCD2_NBYTES_MLNO = 4; // Nº bytes to be transferred
+  DMA_TCD2_SLAST = 0;
+  DMA_TCD2_DADDR = &(ADC0_SC1A); // must be 'nbytes*dsize' aligned
+  DMA_TCD2_DOFF = 0; // Nº bytes between data
+  DMA_TCD2_DLASTSGA = 0;
+
+  DMA_TCD2_CITER_ELINKNO = DMA_TCD2_BITER_ELINKNO = 1;
+
+  DMA_TCD2_CSR &= ~DMA_TCD_CSR_DONE;
+  DMA_TCD2_CSR = 0
+  // disable scatter/gatter processing ESG=0
+  // ERQ bit is not affected when the major loop is complete DREQ=0
+  //| DMA_TCD_CSR_MAJORELINK // enable major loop channel to channel linking
+    | DMA_TCD_CSR_BWC(0) // no eDMA engine stall
+  //  | DMA_TCD_CSR_MAJORLINKCH(2) // major loop channel to channel linking set to 2
+  //  | DMA_TCD_CSR_INTMAJOR // enable the end-of-major loop interrupt
+  ;
+
+  // configure the DMA transfer control descriptor 1
+  DMA_TCD1_SADDR = &(ADC0_RA);
+  DMA_TCD1_SOFF = 0; // Nº bytes between data
+  DMA_TCD1_ATTR = 0
+    | DMA_TCD_ATTR_SMOD(0)
+    | DMA_TCD_ATTR_SSIZE(1)
+    | DMA_TCD_ATTR_DMOD(mod) // mod = log2(nbytes*dsize)
+    | DMA_TCD_ATTR_DSIZE(1);
+  DMA_TCD1_NBYTES_MLNO = 2;// Nº bytes to be transferred
+  DMA_TCD1_SLAST = 0;
+  DMA_TCD1_DADDR = &(adc_ring_buffer[0]); // must be 'nbytes*dsize' aligned
+  DMA_TCD1_DOFF = 2; // Nº bytes between data
+  DMA_TCD1_DLASTSGA = 0;
+
+  DMA_TCD1_CITER_ELINKNO = DMA_TCD1_BITER_ELINKNO = 1
+  //DMA_TCD1_CITER_ELINKYES = DMA_TCD1_BITER_ELINKYES = 1
+  //  | DMA_TCD_ITER_ELINK // enable minor loop channel linking
+  //  | DMA_TCD_ITER_LINKCH(2) // link to the second channel.
+  ;
+
+  DMA_TCD1_CSR &= ~DMA_TCD_CSR_DONE;
+  DMA_TCD1_CSR = 0
+  // disable scatter/gatter processing ESG=0
+  // ERQ bit is not affected when the major loop is complete DREQ=0
+    | DMA_TCD_CSR_MAJORELINK // enable major loop channel to channel linking
+    | DMA_TCD_CSR_BWC(0) // no eDMA engine stall
+    | DMA_TCD_CSR_MAJORLINKCH(2) // major loop channel to channel linking set to 2
+  //  | DMA_TCD_CSR_INTMAJOR // enable the end-of-major loop interrupt
+  ;
+
   // to connect ADC with DMA
   DMA_SERQ = 1; // enable channel 1 requests
 
-  // channels priority
-  DMA_TCD1_CSR = 0;
-  DMA_TCD2_CSR = 0;
-  DMA_CR |= DMA_CR_ERCA; // enable round robin scheduling
-  //DMA_DCHPRI0 = 0;
-  //DMA_DCHPRI1 = 1;
-  //DMA_DCHPRI2 = 2;
-  //DMA_DCHPRI3 = 3;
-
   // configure the DMAMUX so that the ADC DMA request triggers DMA channel 1
-  DMAMUX0_CHCFG1 &= ~DMAMUX_ENABLE;
   DMAMUX0_CHCFG1 = DMAMUX_ENABLE | DMAMUX_SOURCE_ADC0;
 
   gc_st |= GC_ST_DMA;
+  gc_st |= GC_ST_RDMA;
 }
 
 time_t getTeensy3Time()
@@ -310,74 +367,6 @@ void rcfgAdc()
   gc_st |= GC_ST_RADC;
 }
 
-void rcfgDma()
-{
-  if (!(gc_st & GC_ST_ADC)
-   || !(gc_st & GC_ST_DMA)
-   || !(gc_st & GC_ST_RBUFF)
-   || !(gc_st & GC_ST_RADC)) return;
-
-  uint32_t mod = 1+log2(gc_cfg.adc_buffer_size);
-
-  // configure the DMA transfer control descriptor 1
-  DMA_TCD1_SADDR = &(ADC0_RA);
-  DMA_TCD1_SOFF = 0; // Nº bytes between data
-  DMA_TCD1_ATTR = 0
-    | DMA_TCD_ATTR_SMOD(0)
-    | DMA_TCD_ATTR_SSIZE(1)
-    | DMA_TCD_ATTR_DMOD(mod) // mod = log2(nbytes*dsize)
-    | DMA_TCD_ATTR_DSIZE(1);
-  DMA_TCD1_NBYTES_MLNO = 2;// Nº bytes to be transferred
-  DMA_TCD1_SLAST = 0;
-  DMA_TCD1_DADDR = &(adc_ring_buffer[0]); // must be 'nbytes*dsize' aligned
-  DMA_TCD1_DOFF = 2; // Nº bytes between data
-  DMA_TCD1_DLASTSGA = 0;
-
-  DMA_TCD1_CITER_ELINKNO = DMA_TCD1_BITER_ELINKNO = 1
-  //DMA_TCD1_CITER_ELINKYES = DMA_TCD1_BITER_ELINKYES = 1
-  //  | DMA_TCD_ITER_ELINK // enable minor loop channel linking
-  //  | DMA_TCD_ITER_LINKCH(2) // link to the second channel.
-  ;
-
-  DMA_TCD1_CSR &= ~DMA_TCD_CSR_DONE;
-  DMA_TCD1_CSR = 0
-  // disable scatter/gatter processing ESG=0
-  // ERQ bit is not affected when the major loop is complete DREQ=0
-    | DMA_TCD_CSR_MAJORELINK // enable major loop channel to channel linking
-    | DMA_TCD_CSR_BWC(0) // no eDMA engine stall
-    | DMA_TCD_CSR_MAJORLINKCH(2) // major loop channel to channel linking set to 2
-  //  | DMA_TCD_CSR_INTMAJOR // enable the end-of-major loop interrupt
-  ;
-
-  // configure the DMA transfer control descriptor 2
-  DMA_TCD2_SADDR = &(adc_config[1]);
-  DMA_TCD2_SOFF = 4; // Nº bytes between data
-  DMA_TCD2_ATTR = 0
-    | DMA_TCD_ATTR_SMOD(0)
-    | DMA_TCD_ATTR_SSIZE(2)
-    | DMA_TCD_ATTR_DMOD(0)
-    | DMA_TCD_ATTR_DSIZE(2);
-  DMA_TCD2_NBYTES_MLNO = 4; // Nº bytes to be transferred
-  DMA_TCD2_SLAST = 0;
-  DMA_TCD2_DADDR = &(ADC0_SC1A); // must be 'nbytes*dsize' aligned
-  DMA_TCD2_DOFF = 0; // Nº bytes between data
-  DMA_TCD2_DLASTSGA = 0;
-
-  DMA_TCD2_CITER_ELINKNO = DMA_TCD2_BITER_ELINKNO = 1;
-
-  DMA_TCD2_CSR &= ~DMA_TCD_CSR_DONE;
-  DMA_TCD2_CSR = 0
-  // disable scatter/gatter processing ESG=0
-  // ERQ bit is not affected when the major loop is complete DREQ=0
-  //| DMA_TCD_CSR_MAJORELINK // enable major loop channel to channel linking
-    | DMA_TCD_CSR_BWC(0) // no eDMA engine stall
-  //  | DMA_TCD_CSR_MAJORLINKCH(2) // major loop channel to channel linking set to 2
-  //  | DMA_TCD_CSR_INTMAJOR // enable the end-of-major loop interrupt
-  ;
-
-  gc_st |= GC_ST_RDMA;
-}
-
 void rcfg()
 {
   // reconfigure Buffer
@@ -386,7 +375,7 @@ void rcfg()
     rcfgAdc();
 
     // reconfigure DMA
-    rcfgDma();
+    cfgDma();
   } else {
     while (true) {
       gc_println(PSTR("error: buffer!"));
