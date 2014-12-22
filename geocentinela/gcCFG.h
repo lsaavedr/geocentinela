@@ -9,8 +9,8 @@
 
 class gcCFG {
 public:
-  uint8_t gain = 3; //  0->1, 1->2, 2->4, 3->8, 4->16, 5->32, 6->6, 7->16
-  uint8_t average = 2; //  0->4, 1->8, 2->16, 3->32
+  uint8_t gain = 0; //  0->1, 1->2, 2->4, 3->8, 4->16, 5->32, 6->6, 7->16
+  uint8_t average = 3; //  0->4, 1->8, 2->16, 3->32
   uint32_t tick_time_useg = 250; // 4ksps
 
   uint8_t time_type = 0; // testing
@@ -24,15 +24,46 @@ public:
   uint16_t sd_buffer_size = 4096; // 4096*2
   uint16_t sd_buffer_size_bytes = sd_buffer_size * sizeof(uint16_t);
 
+  float flat, flon;
+
+  static void gcCmd(uint8_t* cmd, uint8_t n)
+  {
+    uint8_t head[9] = { '\xaa', '\xaa', '\xaa',
+                        '\xff', '\xff', '\xff',
+                        '\x00', '\x00', '\x00'};
+    Serial.write(head, 9);
+    Serial.write(cmd, n);
+  }
+
+  static void gcPrintln(const char *log_string)
+  {
+    uint8_t cmd[1] = { 't' };
+    gcCmd(cmd, 1);
+
+    Serial.println(log_string);
+  }
+
   gcCFG(const char* file_name, void (*log)(const char*))
   {
     strcpy_P(this->file_name, file_name);
     this->log = log;
   }
 
+  gcCFG(const char* file_name)
+  {
+    strcpy_P(this->file_name, file_name);
+    this->log = gcPrintln;
+  }
+
   bool write();
   bool read();
   void print();
+
+  void set_latlon(float flat, float flon)
+  {
+    this->flat = flat;
+    this->flon = flon;
+  }
 
   void set_gain(uint8_t gain)
   {

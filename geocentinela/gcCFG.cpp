@@ -26,6 +26,12 @@ bool gcCFG::write()
     // write uint16_t sd_buffer_size:
     file_cfg.write((uint8_t*)&sd_buffer_size, sizeof(uint16_t));
 
+    // write float flat:
+    file_cfg.write((uint8_t*)&flat, sizeof(float));
+
+    // write float flon:
+    file_cfg.write((uint8_t*)&flon, sizeof(float));
+
     if (!file_cfg.close()) {
       log(PSTR("GeoCentinelaCFG: file close error"));
       return false;
@@ -108,6 +114,26 @@ bool gcCFG::read()
     // read uint16_t sd_buffer_size:
     if (file_cfg.read(&sd_buffer_size, 2) != 2) {
       log(PSTR("GeoCentinelaCFG: sd_buffer_size"));
+      if (!file_cfg.close()) {
+        log(PSTR("GeoCentinelaCFG: file close error"));
+        log(file_name);
+      }
+      return false;
+    }
+
+    // read float flat:
+    if (file_cfg.read(&flat, 4) != 4) {
+      log(PSTR("GeoCentinelaCFG: flat"));
+      if (!file_cfg.close()) {
+        log(PSTR("GeoCentinelaCFG: file close error"));
+        log(file_name);
+      }
+      return false;
+    }
+
+    // read float flon:
+    if (file_cfg.read(&flon, 4) != 4) {
+      log(PSTR("GeoCentinelaCFG: flon"));
       if (!file_cfg.close()) {
         log(PSTR("GeoCentinelaCFG: file close error"));
         log(file_name);
