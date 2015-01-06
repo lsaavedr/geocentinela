@@ -20,8 +20,8 @@ sleep_block_t* lp_cfg; // sleep configuration
 uint16_t* adc_ring_buffer = NULL;
 
 uint32_t adc_config[4] = {
-  ADC_SC1_ADCH(GC_ADC_A3),
-  ADC_SC1_ADCH(GC_ADC_A6),
+  ADC_SC1_ADCH(GC_ADC_A0),
+  ADC_SC1_ADCH(GC_ADC_A4),
   ADC_SC1_ADCH(GC_ADC_A9),
   ADC_SC1_ADCH(31) // stop=0b11111=31
 };
@@ -66,18 +66,18 @@ volatile uint8_t gcCfgStat = 0;// GeoCentinela Config Status
 #define PIN_USB 30
 #define WAKE_USB PIN_30
 //-------------------------------
-#define DIGITAL_POW 14
-#define ANALOG1_POW 22
-#define ANALOG2_POW 15
+#define DIGITAL_POW 22
+#define ANALOG1_POW 20
+#define ANALOG2_POW 21
 #define DIGITAL_MASK 0b100
 #define ANALOG1_MASK 0b010
 #define ANALOG2_MASK 0b001
 #define POWER_UP_MASK 0b1000
 //-------------------------------
-#define GAIN_CS 21
-#define GAIN_A0 19
-#define GAIN_A1 16
-#define GAIN_A2 18
+#define GAIN_CS 17
+#define GAIN_A0 16
+#define GAIN_A1 15
+#define GAIN_A2 19
 //-------------------------------
 TinyGPS gps;
 #define HOUR_OFFSET -4
