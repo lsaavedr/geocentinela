@@ -139,22 +139,36 @@ public class SettingsActivity extends Activity
 
 				String gain_str = gain.getText().toString();
 				if (gain_str.length() > 0) {
-					if (gain_str.indexOf("1") >= 0) {
-						np.setValue(0);
-					} else if (gain_str.indexOf("2") >= 0) {
-						np.setValue(1);
-					} else if (gain_str.indexOf("4") >= 0) {
-						np.setValue(2);
-					} else if (gain_str.indexOf("8") >= 0) {
-						np.setValue(3);
-					} else if (gain_str.indexOf("16") >= 0) {
-						np.setValue(4);
-					} else if (gain_str.indexOf("32") >= 0) {
-						np.setValue(5);
-					} else if (gain_str.indexOf("64") >= 0) {
-						np.setValue(6);
-					} else if (gain_str.indexOf("128") >= 0) {
-						np.setValue(7);
+					try {
+						int gain_int = Integer.parseInt(gain_str);
+						switch(gain_int) {
+						case 1:
+							np.setValue(0);
+							break;
+						case 2:
+							np.setValue(1);
+							break;
+						case 4:
+							np.setValue(2);
+							break;
+						case 8:
+							np.setValue(3);
+							break;
+						case 16:
+							np.setValue(4);
+							break;
+						case 32:
+							np.setValue(5);
+							break;
+						case 64:
+							np.setValue(6);
+							break;
+						case 128:
+							np.setValue(7);
+							break;
+						}
+					} catch(Exception e) {
+						// TODO
 					}
 				}
 
@@ -509,29 +523,46 @@ public class SettingsActivity extends Activity
             	String str_end = end.getText().toString();
 
             	if (str_gain.length() > 0) {
-            		if (str_gain.indexOf("1") >= 0) {
-            			sendCmd(new byte[] { 's', 'o', (byte)(0 & 0xff) });
-            		} else if (str_gain.indexOf("2") >= 0) {
-            			sendCmd(new byte[] { 's', 'o', (byte)(1 & 0xff) });
-            		} else if (str_gain.indexOf("4") >= 0) {
-            			sendCmd(new byte[] { 's', 'o', (byte)(2 & 0xff) });
-            		} else if (str_gain.indexOf("8") >= 0) {
-            			sendCmd(new byte[] { 's', 'o', (byte)(3 & 0xff) });
-            		} else if (str_gain.indexOf("16") >= 0) {
-            			sendCmd(new byte[] { 's', 'o', (byte)(4 & 0xff) });
-            		} else if (str_gain.indexOf("32") >= 0) {
-            			sendCmd(new byte[] { 's', 'o', (byte)(5 & 0xff) });
-            		} else if (str_gain.indexOf("64") >= 0) {
-            			sendCmd(new byte[] { 's', 'o', (byte)(6 & 0xff) });
-            		} else if (str_gain.indexOf("128") >= 0) {
-            			sendCmd(new byte[] { 's', 'o', (byte)(7 & 0xff) });
-            		}
+					try {
+						int gain_int = Integer.parseInt(str_gain);
+						switch(gain_int) {
+						case 1:
+	            			sendCmd(new byte[] { 's', 'o', (byte)(0 & 0xff) });
+							break;
+						case 2:
+	            			sendCmd(new byte[] { 's', 'o', (byte)(1 & 0xff) });
+							break;
+						case 4:
+	            			sendCmd(new byte[] { 's', 'o', (byte)(2 & 0xff) });
+							break;
+						case 8:
+	            			sendCmd(new byte[] { 's', 'o', (byte)(3 & 0xff) });
+							break;
+						case 16:
+	            			sendCmd(new byte[] { 's', 'o', (byte)(4 & 0xff) });
+							break;
+						case 32:
+	            			sendCmd(new byte[] { 's', 'o', (byte)(5 & 0xff) });
+							break;
+						case 64:
+	            			sendCmd(new byte[] { 's', 'o', (byte)(6 & 0xff) });
+							break;
+						case 128:
+	            			sendCmd(new byte[] { 's', 'o', (byte)(7 & 0xff) });
+							break;
+						}
+					} catch(Exception e) {
+						// TODO
+					}
             	}
 
             	if (str_haverage.length() > 0) {
-            		int int_haverage = Integer.parseInt(str_haverage);
-
-            		sendCmd(new byte[] { 's', 'm', (byte)(int_haverage & 0xff) });
+            		try {
+                		int int_haverage = Integer.parseInt(str_haverage);
+                		sendCmd(new byte[] { 's', 'm', (byte)(int_haverage & 0xff) });
+            		} catch (Exception e) {
+            			// TODO
+            		}
             	}
 
             	if (str_sps.length() > 0) {

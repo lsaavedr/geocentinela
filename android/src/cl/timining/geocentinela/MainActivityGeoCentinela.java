@@ -80,8 +80,8 @@ public class MainActivityGeoCentinela extends Activity
         log.setBackgroundColor(Color.parseColor("#ff6600"));
         log.setMovementMethod(new ScrollingMovementMethod());
 
-        Button start = (Button)this.findViewById(R.id.start);
-        start.setOnClickListener(new View.OnClickListener() {
+        Button time = (Button)this.findViewById(R.id.time);
+        time.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
     			sendCmd(new byte[] { 'n' });
