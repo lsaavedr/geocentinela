@@ -192,6 +192,14 @@ void loop()
 
       bool write_cfg = false;
       switch (cmd) {
+      case 'n':
+        {
+          uint8_t head[1] = {
+            't'
+          };
+          gc_cmd(head, 1);
+          digitalClockDisplay();
+        } break;
       case 'j': 
         {
           uint32_t tj = (uint32_t)Serial.parseInt();
