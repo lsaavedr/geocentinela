@@ -673,6 +673,8 @@ boolean gc_stop()
 
   // save adc_rtc_stop
   file.write((uint8_t*)&adc_rtc_stop, sizeof(uint32_t));
+  file.timestamp(T_WRITE, year(), month(), day(), hour(), minute(), second());
+  file.timestamp(T_ACCESS, year(), month(), day(), hour(), minute(), second());
 
   if (file.writeError) {
     gc_println(PSTR("error:stop: write file!"));
@@ -700,10 +702,9 @@ boolean file_cfg()
     name[4] = '0' + (n%1000)/100;
     name[5] = '0' + (n%100)/10;
     name[6] = '0' + n%10;
-    if (file.open(name, O_CREAT | O_EXCL | O_TRUNC | O_WRITE)) break;
-    else {
-      gc_print(PSTR("ff:"));
-      gc_println(name);
+    if (file.open(name, O_CREAT | O_EXCL | O_TRUNC | O_WRITE)) {
+      file.timestamp(T_CREATE, year(), month(), day(), hour(), minute(), second());
+      break;
     }
   }
 

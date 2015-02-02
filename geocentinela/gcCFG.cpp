@@ -5,6 +5,10 @@
 bool gcCFG::write()
 {
   if (file_cfg.open(file_name, O_CREAT | O_TRUNC | O_WRITE)) {
+    file_cfg.timestamp(T_CREATE, year(), month(), day(), hour(), minute(), second());
+    file_cfg.timestamp(T_WRITE, year(), month(), day(), hour(), minute(), second());
+    file_cfg.timestamp(T_ACCESS, year(), month(), day(), hour(), minute(), second());
+
     // write uint8_t (gain << 4) | average:
     file_cfg.write((gain << 4) | average);
 
@@ -146,6 +150,8 @@ bool gcCFG::read()
       log(file_name);
       return false;
     }
+
+    file_cfg.timestamp(T_ACCESS, year(), month(), day(), hour(), minute(), second());
   } else {
     log(PSTR("GeoCentinelaCFG: file open error"));
     log(file_name);

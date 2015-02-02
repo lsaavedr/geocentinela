@@ -1,4 +1,5 @@
 #include <SdFat.h>
+#include <Time.h>
 
 #ifndef GC_CFG_H
 #define GC_CFG_H
