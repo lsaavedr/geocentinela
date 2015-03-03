@@ -309,6 +309,8 @@ public class SettingsActivity extends Activity
 		final CheckBox daily = (CheckBox)this.findViewById(R.id.daily);
 		final RelativeLayout daily_layout = (RelativeLayout)this.findViewById(R.id.daily_layout);
 
+		final CheckBox gps = (CheckBox)this.findViewById(R.id.gps);
+
 		chrono.setOnClickListener(new View.OnClickListener() {
 			@Override
 			public void onClick(View arg0)
@@ -331,6 +333,14 @@ public class SettingsActivity extends Activity
 				daily_layout.setVisibility(View.VISIBLE);
 				daily_layout.setEnabled(true);
 				daily.setChecked(true);
+			}
+		});
+
+		gps.setOnClickListener(new View.OnClickListener() {
+			@Override
+			public void onClick(View arg0)
+			{
+				sendCmd(new byte[] { 's', 'x' });
 			}
 		});
 
@@ -761,7 +771,7 @@ public class SettingsActivity extends Activity
 	}
 
 	public void refreshGUI(int gain, int average, long tick_time_usec,
-			int time_type, long time_begin_seg, long time_end_seg)
+			int time_type, long time_begin_seg, long time_end_seg, boolean gps)
 	{
 		TextView gainview = (TextView)this.findViewById(R.id.gain);
 		TextView sps = (TextView)this.findViewById(R.id.sps);
@@ -774,6 +784,9 @@ public class SettingsActivity extends Activity
 
 		CheckBox chrono = (CheckBox)this.findViewById(R.id.chrono);
 		CheckBox daily = (CheckBox)this.findViewById(R.id.daily);
+
+		CheckBox gpsOn = (CheckBox)this.findViewById(R.id.gps);
+		gpsOn.setChecked(gps);
 
 		gainview.setText(""+Math.pow(2,gain));
 

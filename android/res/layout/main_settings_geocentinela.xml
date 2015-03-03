@@ -185,6 +185,14 @@
 
     </RelativeLayout>
 
+    <CheckBox
+        android:id="@+id/gps"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentLeft="true"
+        android:layout_below="@+id/daily_layout"
+        android:text="@string/gps" />
+
     <TextView
         android:id="@+id/log"
         android:layout_width="match_parent"

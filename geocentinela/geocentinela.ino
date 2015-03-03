@@ -19,8 +19,8 @@ void start_reading()
   cli();
   if (LOW == digitalRead(PIN_USB)) {
     attachInterrupt(PIN_USB, stop_reading, RISING);
+    gcPlayStat = 0;
     gcPlayStat |= GC_ST_PLAY;
-    gcPlayStat |= GC_ST_SLEEP;
   }
   sei();
 }
@@ -31,10 +31,8 @@ void stop_reading()
   setPowerDown(ANALOG1_MASK);
   if (adc_rtc_stop == 0) adc_rtc_stop = Teensy3Clock.get();
 
-  gcPlayStat &= ~GC_ST_SLEEP;
-  gcPlayStat &= ~GC_ST_READING;
+  gcPlayStat = 0;
   gcPlayStat |= GC_ST_STOP;
-  adc_play_cnt = 0;
   sei();
 
   if (HIGH == digitalRead(PIN_USB)) {
@@ -55,11 +53,11 @@ void setup()
   // USB wakeup
   pinMode(PIN_USB, INPUT);
   *portConfigRegister(PIN_USB) = PORT_PCR_MUX(1) | PORT_PCR_PE;
+  delay(100);
 
   if (HIGH == digitalRead(PIN_USB)) {
     attachInterrupt(PIN_USB, start_reading, FALLING);
     gcPlayStat |= GC_ST_CONFIG;
-    gcPlayStat &= ~GC_ST_SLEEP;
   }
   else {
     start_reading();
@@ -124,12 +122,9 @@ void loop()
     if (gcPlayStat & GC_ST_STOP) {
       if (gc_stop()) {
         gc_println(PSTR("Stopped!"));
-        uint8_t end[2] = { 
-          'e', 'c'         };
-        gc_cmd(end, 2);
-      } 
+      }
       else {
-        gc_println(PSTR("Stopped?"));
+        gc_println(PSTR("Stopped error!"));
       }
 
       if (buffer_errors) gc_println(PSTR("error:loop: buffer!"));
@@ -137,12 +132,13 @@ void loop()
     }
 
     if (gcPlayStat & GC_ST_PLAY) {
+      gcPlayStat &= ~GC_ST_PLAY;
+
       switch (gc_cfg.time_type) {
       case 0: 
         {
-          if (gcPlayStat & GC_ST_CONFIG) adc_play_cnt = sleep_chrono();
-          else adc_play_cnt = deep_sleep();
-        } 
+          adc_play_cnt = sleep_chrono();
+        }
         break;
       case 1: 
         {
@@ -152,28 +148,10 @@ void loop()
       }
 
       if (adc_play_cnt != 0 && gc_start()) {
-        gcPlayStat &= ~GC_ST_CONFIG;
         gc_println(PSTR("Started!"));
       } 
       else {
-        if (0 == adc_play_cnt) {
-
-        } 
-        else {
-          stop_reading();
-          /*
-  uint32_t t = Teensy3Clock.get() % SEG_A_DAY;
-           while (!Serial.available()) {
-           uint32_t s = Teensy3Clock.get() % SEG_A_DAY;
-           Serial.print("no:");
-           Serial.print(s-t);
-           Serial.print(":");
-           Serial.println(adc_play_cnt);
-           delay(1000);
-           }
-           while(Serial.available()) Serial.read();
-           */
-        }
+        stop_reading();
       }
     }
   } 
@@ -286,7 +264,7 @@ void loop()
             cmd = Serial.read();
 
             switch (cmd) {
-            case 'o': 
+              case 'o':
               {
                 if (length > 1) {
                   cmd = Serial.read();
@@ -295,11 +273,10 @@ void loop()
 
                   write_cfg = true;
                 }
-              } 
-              break;
-            case 'g': 
+              }break;
+              case 'g': 
               {
-                uint8_t settings[20] = { 
+                uint8_t settings[21] = { 
                   's',
                   (gc_cfg.gain << 4) | gc_cfg.average,
                   ((uint8_t*)&gc_cfg.tick_time_useg)[0],
@@ -319,27 +296,25 @@ void loop()
                   ((uint8_t*)&gc_cfg.adc_buffer_size)[1],
                   ((uint8_t*)&gc_cfg.sd_buffer_size)[0],
                   ((uint8_t*)&gc_cfg.sd_buffer_size)[1],
+                  (uint8_t)gc_cfg.gps,
                 };
-                gc_cmd(settings, 20);
-              } 
-              break;
-            case 'p': 
+                gc_cmd(settings, 21);
+              }break;
+              case 'p': 
               {
                 gc_println(PSTR("Settings:"));
                 gc_cfg.print();
                 digitalClockDisplay();
-              } 
-              break;
-            case 'm': 
+              }break;
+              case 'm': 
               {
                 if (length > 1) {
                   cmd = Serial.read();
                   gc_cfg.set_average(cmd);
                   write_cfg = true;
                 }
-              } 
-              break;
-            case 's': 
+              }break;
+              case 's': 
               {
                 if (length > 4) {
                   uint32_t tick_time_useg;
@@ -350,18 +325,16 @@ void loop()
                   gc_cfg.set_tick_time_useg(tick_time_useg);
                   write_cfg = true;
                 }
-              } 
-              break;
-            case 't': 
+              }break;
+              case 't': 
               {
                 if (length > 1) {
                   cmd = Serial.read();
                   gc_cfg.set_time_type(cmd);
                   write_cfg = true;
                 }
-              } 
-              break;
-            case 'u': 
+              }break;
+              case 'u': 
               {
                 if (length > 4) {
                   uint32_t time_begin_seg;
@@ -372,9 +345,8 @@ void loop()
                   gc_cfg.set_time_begin(time_begin_seg % SEG_A_DAY);
                   write_cfg = true;
                 }
-              } 
-              break;
-            case 'v': 
+              }break;
+              case 'v': 
               {
                 if (length > 4) {
                   uint32_t time_end_seg;
@@ -385,9 +357,8 @@ void loop()
                   gc_cfg.set_time_end(time_end_seg % SEG_A_DAY);
                   write_cfg = true;
                 }
-              } 
-              break;
-            case 'z': 
+              }break;
+              case 'z': 
               {
                 uint32_t z = Teensy3Clock.get();
                 uint32_t u = (z+60*10) % SEG_A_DAY;
@@ -395,9 +366,8 @@ void loop()
                 gc_cfg.set_time_begin(u);
                 gc_cfg.set_time_end(v);
                 write_cfg = true;
-              } 
-              break;
-            case 'a': 
+              }break;
+              case 'a': 
               {
                 if (length > 2) {
                   uint16_t adc_buffer_size;
@@ -406,9 +376,8 @@ void loop()
                   gc_cfg.set_adc_buffer_size(adc_buffer_size);
                   write_cfg = true;
                 }
-              } 
-              break;
-            case 'b': 
+              }break;
+              case 'b': 
               {
                 if (length > 2) {
                   uint16_t sd_buffer_size;
@@ -417,9 +386,8 @@ void loop()
                   gc_cfg.set_sd_buffer_size(sd_buffer_size);
                   write_cfg = true;
                 }
-              } 
-              break;
-            case 'r': 
+              }break;
+              case 'r': 
               {
                 time_t pctime = (time_t)(Serial.parseInt());
                 if (pctime != 0) {
@@ -427,27 +395,28 @@ void loop()
                   Teensy3Clock.set(pctime); // set the RTC
                   setTime(pctime);
                 }
-              } 
-              break;
-            case 'w': 
+              }break;
+              case 'w': 
               {
                 if (length > 1) {
                   cmd = (uint8_t)Serial.read();
                   if ((cmd & POWER_UP_MASK) > 0) setPowerUp(cmd);
                   else setPowerDown(cmd);
                 }
-              } 
-              break;
-            case 'y': 
+              }break;
+              case 'y': 
               {
                 syncGps();
-              } 
-              break;
+              }break;
+              case 'x':
+              {
+                gc_cfg.toggle_gps();
+                write_cfg = true;
+              }break;
             default: 
               {
                 gc_println(PSTR("bad set!"));
-              } 
-              break;
+              }break;
             }
           } 
           else {
@@ -480,4 +449,3 @@ void loop()
     }
   }
 }
-

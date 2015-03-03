@@ -30,11 +30,8 @@ bool gcCFG::write()
     // write uint16_t sd_buffer_size:
     file_cfg.write((uint8_t*)&sd_buffer_size, sizeof(uint16_t));
 
-    // write float flat:
-    file_cfg.write((uint8_t*)&flat, sizeof(float));
-
-    // write float flon:
-    file_cfg.write((uint8_t*)&flon, sizeof(float));
+    // write gps:
+    file_cfg.write((uint8_t*)&gps, sizeof(boolean));
 
     if (!file_cfg.close()) {
       log(PSTR("GeoCentinelaCFG: file close error"));
@@ -53,7 +50,7 @@ bool gcCFG::read()
 {
   if (file_cfg.open(file_name, O_READ)) {
     // read uint8_t gain and average:
-    if (file_cfg.read(&gain, 1) != 1) {
+    if (file_cfg.read(&gain, sizeof(uint8_t)) != sizeof(uint8_t)) {
       log(PSTR("GeoCentinelaCFG: gain"));
       if (!file_cfg.close()) {
         log(PSTR("GeoCentinelaCFG: file close error"));
@@ -66,7 +63,7 @@ bool gcCFG::read()
     }
 
     // read uint32_t tick_time_useg:
-    if (file_cfg.read(&tick_time_useg, 4) != 4) {
+    if (file_cfg.read(&tick_time_useg, sizeof(uint32_t)) != sizeof(uint32_t)) {
       log(PSTR("GeoCentinelaCFG: tick_time_useg"));
       if (!file_cfg.close()) {
         log(PSTR("GeoCentinelaCFG: file close error"));
@@ -76,7 +73,7 @@ bool gcCFG::read()
     }
 
     // read uint8_t time_type:
-    if (file_cfg.read(&time_type, 1) != 1) {
+    if (file_cfg.read(&time_type, sizeof(uint8_t)) != sizeof(uint8_t)) {
       log(PSTR("GeoCentinelaCFG: time_type"));
       if (!file_cfg.close()) {
         log(PSTR("GeoCentinelaCFG: file close error"));
@@ -86,7 +83,7 @@ bool gcCFG::read()
     }
 
     // read uint32_t time_begin_seg:
-    if (file_cfg.read(&time_begin_seg, 4) != 4) {
+    if (file_cfg.read(&time_begin_seg, sizeof(uint32_t)) != sizeof(uint32_t)) {
       log(PSTR("GeoCentinelaCFG: time_begin_seg"));
       if (!file_cfg.close()) {
         log(PSTR("GeoCentinelaCFG: file close error"));
@@ -96,7 +93,7 @@ bool gcCFG::read()
     }
 
     // read uint32_t time_end_seg:
-    if (file_cfg.read(&time_end_seg, 4) != 4) {
+    if (file_cfg.read(&time_end_seg, sizeof(uint32_t)) != sizeof(uint32_t)) {
       log(PSTR("GeoCentinelaCFG: time_end_seg"));
       if (!file_cfg.close()) {
         log(PSTR("GeoCentinelaCFG: file close error"));
@@ -106,7 +103,7 @@ bool gcCFG::read()
     }
 
     // read uint16_t adc_buffer_size:
-    if (file_cfg.read(&adc_buffer_size, 2) != 2) {
+    if (file_cfg.read(&adc_buffer_size, sizeof(uint16_t)) != sizeof(uint16_t)) {
       log(PSTR("GeoCentinelaCFG: adc_buffer_size"));
       if (!file_cfg.close()) {
         log(PSTR("GeoCentinelaCFG: file close error"));
@@ -116,7 +113,7 @@ bool gcCFG::read()
     }
 
     // read uint16_t sd_buffer_size:
-    if (file_cfg.read(&sd_buffer_size, 2) != 2) {
+    if (file_cfg.read(&sd_buffer_size, sizeof(uint16_t)) != sizeof(uint16_t)) {
       log(PSTR("GeoCentinelaCFG: sd_buffer_size"));
       if (!file_cfg.close()) {
         log(PSTR("GeoCentinelaCFG: file close error"));
@@ -125,19 +122,9 @@ bool gcCFG::read()
       return false;
     }
 
-    // read float flat:
-    if (file_cfg.read(&flat, 4) != 4) {
-      log(PSTR("GeoCentinelaCFG: flat"));
-      if (!file_cfg.close()) {
-        log(PSTR("GeoCentinelaCFG: file close error"));
-        log(file_name);
-      }
-      return false;
-    }
-
-    // read float flon:
-    if (file_cfg.read(&flon, 4) != 4) {
-      log(PSTR("GeoCentinelaCFG: flon"));
+    // read gps:
+    if (file_cfg.read(&gps, sizeof(boolean)) != sizeof(boolean)) {
+      log(PSTR("GeoCentinelaCFG: gps"));
       if (!file_cfg.close()) {
         log(PSTR("GeoCentinelaCFG: file close error"));
         log(file_name);
@@ -172,6 +159,7 @@ void gcCFG::print()
   Serial.print(PSTR("time_end_seg:")); Serial.println(time_end_seg);
   Serial.print(PSTR("adc_buffer_size:")); Serial.println(adc_buffer_size);
   Serial.print(PSTR("sd_buffer_size:")); Serial.println(sd_buffer_size);
+  Serial.print(PSTR("gps:")); Serial.println(gps);
   Serial.print(PSTR("F_BUS:")); Serial.println(F_BUS);
   Serial.println();
 }

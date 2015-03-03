@@ -25,7 +25,7 @@ public:
   uint16_t sd_buffer_size = 4096; // 4096*2
   uint16_t sd_buffer_size_bytes = sd_buffer_size * sizeof(uint16_t);
 
-  float flat, flon;
+  boolean gps = true;
 
   static void gcCmd(uint8_t* cmd, uint8_t n)
   {
@@ -56,15 +56,13 @@ public:
     this->log = gcPrintln;
   }
 
+  void toggle_gps() {
+    gps = !gps;
+  }
+
   bool write();
   bool read();
   void print();
-
-  void set_latlon(float flat, float flon)
-  {
-    this->flat = flat;
-    this->flon = flon;
-  }
 
   void set_gain(uint8_t gain)
   {

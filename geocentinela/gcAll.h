@@ -81,7 +81,7 @@ volatile uint8_t gcCfgStat = 0;// GeoCentinela Config Status
 //-------------------------------
 TinyGPS gps;
 #define HOUR_OFFSET -4
-#define GPS_RTC_SYNC_TIME 5*60*1000 // 5min
+#define GPS_RTC_SYNC_TIME 1*60*1000 // 5min
 #define GPS Serial1
 //-------------------------------
 #define LOG_TIMEOUT 1000
@@ -157,28 +157,6 @@ String strDouble(String str, double val, uint8_t precision)
   return str;
 }
 
-boolean rtc2gpsSync()
-{
-  String cmd = "$PSRF104,";
-  cmd = strDouble(cmd, gc_cfg.flat, 7) + ',';
-  cmd = strDouble(cmd, gc_cfg.flon, 7) + ",0,0,";
-  uint32_t rtctime = Teensy3Clock.get();
-  uint32_t wn = (rtctime- 935279987)/604800;
-  uint32_t tow = (rtctime- 935279987)%604800;
-  cmd += tow;
-  cmd += ',';
-  cmd += wn;
-  cmd += ",12,3";
-  uint8_t checkSum = 0;
-  for (int i = 1; i < cmd.length(); i++)
-    checkSum ^= uint8_t(cmd[i]);
-  cmd += "*";
-  cmd += String(checkSum, HEX);
-  GPS.println(cmd);
-
-  return true;
-}
-
 void cfgGps()
 {
   GPS.begin(4800);
@@ -200,8 +178,6 @@ void cfgGps()
   //GPS.println(PSTR("$PSRF103,5,0,1,1*22"));
   //GPS.println(PSTR("$PSRF103,6,0,1,1*23"));
   //GPS.println(PSTR("$PSRF103,8,0,1,1*2D"));
-
-  rtc2gpsSync();
 }
 
 boolean gps2rtcSync()
@@ -219,16 +195,16 @@ boolean gps2rtcSync()
   float flat, flon;
   gps.f_get_position(&flat, &flon, &fix_age);
   if (fix_age < 500 && fix_age != TinyGPS::GPS_INVALID_AGE) {
-    gc_cfg.set_latlon(flat, flon);
-    gc_cfg.write();
-    rtc2gpsSync();
-  } else return false;
+    return true;
+  }
 
-  return true;
+  return false;
 }
 
 void syncGps()
 {
+  if (!gc_cfg.gps) return;
+
   // GPS power on
   setPowerUp(ANALOG2_MASK);
   delay(1000);
@@ -239,7 +215,7 @@ void syncGps()
   char c = 0;
   uint8_t timeIni = millis();
   boolean rtcSync = false;
-  while (!rtcSync && (millis() - timeIni) <= GPS_RTC_SYNC_TIME) {
+  while (!rtcSync && (millis() - timeIni) <= GPS_RTC_SYNC_TIME && (gcPlayStat & GC_ST_CONFIG) == 0) {
     while (GPS.available() > 0 && !rtcSync) {
       c = GPS.read();
       Serial.write(c);
@@ -531,8 +507,6 @@ uint32_t deep_sleep()
 
   // sleep
   lp.DeepSleep(lp_cfg);
-  gcPlayStat &= ~GC_ST_SLEEP;
-  gcPlayStat |= GC_ST_CONFIG;
 
   return 0;
 }
@@ -543,15 +517,10 @@ uint32_t sleep_chrono()
   memset(lp_cfg, 0, sizeof(sleep_block_t));
 
   // OR together different wake sources
-  if (gcPlayStat & GC_ST_SLEEP) {
-    lp_cfg->modules = (GPIO_WAKE | RTCA_WAKE);
+  lp_cfg->modules = (GPIO_WAKE | RTCA_WAKE);
 
-    // GPIO alarm wakeup
-    lp_cfg->gpio_pin = WAKE_USB;
-  } else {
-    lp_cfg->modules = RTCA_WAKE;
-    gcPlayStat |= GC_ST_SLEEP;
-  }
+  // GPIO alarm wakeup
+  lp_cfg->gpio_pin = WAKE_USB;
 
   // RTC alarm wakeup in seconds:
   lp_cfg->rtc_alarm = gc_cfg.time_begin_seg;
@@ -565,11 +534,7 @@ uint32_t sleep_chrono()
     lp.DeepSleep(lp_cfg);
 
     if (lp_cfg->wake_source == WAKE_USB) {
-      gcPlayStat &= ~GC_ST_SLEEP;
-      gcPlayStat |= GC_ST_CONFIG;
       return 0;
-    } else {
-      setPowerUp(ANALOG1_MASK); delay(200);
     }
   }
 
@@ -582,15 +547,10 @@ uint32_t sleep_daily()
   memset(lp_cfg, 0, sizeof(sleep_block_t));
 
   // OR together different wake sources
-  if (gcPlayStat & GC_ST_SLEEP) {
-    lp_cfg->modules = (GPIO_WAKE | RTCA_WAKE);
+  lp_cfg->modules = (GPIO_WAKE | RTCA_WAKE);
 
-    // GPIO alarm wakeup
-    lp_cfg->gpio_pin = WAKE_USB;
-  } else {
-    lp_cfg->modules = RTCA_WAKE;
-    gcPlayStat |= GC_ST_SLEEP;
-  }
+  // GPIO alarm wakeup
+  lp_cfg->gpio_pin = WAKE_USB;
 
   uint32_t time_n = Teensy3Clock.get() % SEG_A_DAY;
   uint32_t dseg = 0;
@@ -627,11 +587,8 @@ uint32_t sleep_daily()
     lp.DeepSleep(lp_cfg);
 
     if (lp_cfg->wake_source == WAKE_USB) {
-      gcPlayStat &= ~GC_ST_SLEEP;
-      gcPlayStat |= GC_ST_CONFIG;
       return 0;
     } else { // GPS rtc sync first!
-      setPowerUp(ANALOG1_MASK); delay(200);
       // sync RTC with the GPS
       syncGps();
     }
@@ -673,6 +630,12 @@ boolean gc_stop()
 
   // save adc_rtc_stop
   file.write((uint8_t*)&adc_rtc_stop, sizeof(uint32_t));
+
+  // save act_play_cnt
+  file.write((int32_t*)&adc_play_cnt, sizeof(int32_t));
+  adc_play_cnt = 0;
+
+  // file timestamp
   file.timestamp(T_WRITE, year(), month(), day(), hour(), minute(), second());
   file.timestamp(T_ACCESS, year(), month(), day(), hour(), minute(), second());
 
@@ -704,12 +667,17 @@ boolean file_cfg()
     name[6] = '0' + n%10;
     if (file.open(name, O_CREAT | O_EXCL | O_TRUNC | O_WRITE)) {
       file.timestamp(T_CREATE, year(), month(), day(), hour(), minute(), second());
+      file.timestamp(T_WRITE, year(), month(), day(), hour(), minute(), second());
+      file.timestamp(T_ACCESS, year(), month(), day(), hour(), minute(), second());
       break;
     }
   }
 
   if (!file.isOpen()) {
     gc_println(PSTR("log:file open failed"));
+    file.timestamp(T_CREATE, 1980, month(), day(), hour(), minute(), second());
+    file.timestamp(T_WRITE, 1980, month(), day(), hour(), minute(), second());
+    file.timestamp(T_ACCESS, 1980, month(), day(), hour(), minute(), second());
     return false;
   } else {
     // write uint8_t file format
@@ -734,8 +702,6 @@ boolean file_cfg()
   }
 }
 
-volatile uint32_t wea = 0;
-volatile uint32_t nnn = 0;
 void adc_play_callback() {
   if (adc_play_cnt-- <= 0) {
     stop_reading();
@@ -756,8 +722,6 @@ void adc_play_callback() {
 
   DMA_TCD2_SADDR = &(adc_config[1]);
   ADC0_SC1A = adc_config[0];
-  wea++;
-  nnn = adc_play_cnt;
 }
 
 boolean gc_start()
@@ -768,6 +732,7 @@ boolean gc_start()
   delta = 0; tail = 0; sd_head = 0;
   adc_errors = 0; buffer_errors = 0;
   adc_rtc_stop = 0;
+  setPowerUp(ANALOG1_MASK); delay(200);
 
   // configure file
   if (file_cfg()) {
@@ -788,6 +753,7 @@ boolean gc_start()
     if (!adc_play.begin(adc_play_callback, gc_cfg.tick_time_useg)) {
       sd_buffer[sd_head-1] = 61153;
       gc_println(PSTR("error:start: adc_play!"));
+      setPowerDown(ANALOG1_MASK);
       return false;
     }
 
@@ -795,6 +761,7 @@ boolean gc_start()
     return true;
   } else {
     gc_println(PSTR("error:start: file!"));
+    setPowerDown(ANALOG1_MASK);
     return false;
   }
 }

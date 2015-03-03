@@ -235,17 +235,17 @@ public class MainActivityGeoCentinela extends Activity
 		int head_length = 9;
 
 		int ini = 0;
-		int end = indexOf(data, ini, (byte)-86);
+		int end = indexOf(data, ini, (byte)0xaa);
 		while (end != -1 && data.length > end+head_length) {
-			if (data[end+1] != (byte)-86 ||
-				data[end+2] != (byte)-86 ||
-				data[end+3] != (byte)-1  ||
-				data[end+4] != (byte)-1  ||
-				data[end+5] != (byte)-1  ||
-				data[end+6] != (byte) 0  ||
-				data[end+7] != (byte) 0  ||
-				data[end+8] != (byte) 0) {
-				end = indexOf(data, end+1, (byte)-86);
+			if (data[end+1] != (byte)0xaa ||
+				data[end+2] != (byte)0xaa ||
+				data[end+3] != (byte)0xff ||
+				data[end+4] != (byte)0xff ||
+				data[end+5] != (byte)0xff ||
+				data[end+6] != (byte)0x00 ||
+				data[end+7] != (byte)0x00 ||
+				data[end+8] != (byte)0x00) {
+				end = indexOf(data, end+1, (byte)0xaa);
 				continue;
 			}
 
@@ -263,7 +263,7 @@ public class MainActivityGeoCentinela extends Activity
 			if (data[end+head_length] == (byte)'s') log_cmd = 6;
 
 			ini = end+head_length+1;
-			end = indexOf(data, ini, (byte)-86);
+			end = indexOf(data, ini, (byte)0xaa);
 		}
 
 		if (data.length - ini > 0) {
@@ -377,7 +377,7 @@ public class MainActivityGeoCentinela extends Activity
 			break;
 		case 6:
 			if (sa!=null) {
-				if (data.length > 17) {
+				if (data.length > 18) {
 					int gain = ((data[0] & 0xff) >> 4) & 0xf;
 					int average = (data[0] & 0xff) & 0xf;
 					int time_type = data[5] & 0xff;
@@ -398,7 +398,32 @@ public class MainActivityGeoCentinela extends Activity
 						sd_buffer_size = (sd_buffer_size << 8) + (data[17-i] & 0xff);
 					}
 
-					sa.refreshGUI(gain, average, tick_time_usec, time_type, time_begin_seg, time_end_seg);
+					boolean gps = (data[18] & 0xff) != 0;
+
+					sa.refreshGUI(gain, average, tick_time_usec, time_type, time_begin_seg, time_end_seg, gps);
+				}
+				else if (data.length > 17) {
+					int gain = ((data[0] & 0xff) >> 4) & 0xf;
+					int average = (data[0] & 0xff) & 0xf;
+					int time_type = data[5] & 0xff;
+
+					long tick_time_usec = 0;
+					long time_begin_seg = 0;
+					long time_end_seg = 0;
+					for (int i=0; i < 4; i++) {
+						tick_time_usec = (tick_time_usec << 8) + (data[4-i] & 0xff);
+						time_begin_seg = (time_begin_seg << 8) + (data[9-i] & 0xff);
+						time_end_seg = (time_end_seg << 8) + (data[13-i] & 0xff);
+					}
+
+					int adc_buffer_size = 0;
+					int sd_buffer_size = 0;
+					for (int i=0; i < 2; i++) {
+						adc_buffer_size = (adc_buffer_size << 8) + (data[15-i] & 0xff);
+						sd_buffer_size = (sd_buffer_size << 8) + (data[17-i] & 0xff);
+					}
+
+					sa.refreshGUI(gain, average, tick_time_usec, time_type, time_begin_seg, time_end_seg, true);
 				}
 			}
 			break;

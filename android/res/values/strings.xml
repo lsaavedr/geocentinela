@@ -16,6 +16,8 @@
     <string name="testing">Testing</string>
     <string name="daily">Programación diaria</string>
 
+    <string name="gps">Usar GPS</string>
+
     <string name="begin">Comienzo</string>
     <string name="end">Término</string>
     <string name="lapse">Intervalo</string>
