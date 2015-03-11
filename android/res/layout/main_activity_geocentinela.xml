@@ -17,11 +17,19 @@
         android:text="Time" />
 
     <Button
-        android:id="@+id/ls"
+        android:id="@+id/vbat"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_alignParentTop="true"
         android:layout_toRightOf="@+id/time"
+        android:text="VBat" />
+
+    <Button
+        android:id="@+id/ls"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentTop="true"
+        android:layout_toRightOf="@+id/vbat"
         android:text="Refrescar" />
 
     <ListView

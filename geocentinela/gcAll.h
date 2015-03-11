@@ -16,14 +16,19 @@ sleep_block_t* lp_cfg; // sleep configuration
 #define GC_ADC_A7 7
 #define GC_ADC_A8 15
 #define GC_ADC_A9 4
+#define GC_ADC_A10 0
+#define GC_ADC_A11 19
+#define GC_ADC_A12 3
 //-------------------------------
 uint16_t* adc_ring_buffer = NULL;
 
-uint32_t adc_config[4] = {
+uint32_t adc_config[6] = {
   ADC_SC1_ADCH(GC_ADC_A3),
   ADC_SC1_ADCH(GC_ADC_A6),
   ADC_SC1_ADCH(GC_ADC_A9),
-  ADC_SC1_ADCH(31) // stop=0b11111=31
+  ADC_SC1_ADCH(31), // stop=0b11111=31
+  ADC_SC1_ADCH(GC_ADC_A11), // read battery state
+  ADC_SC1_ADCH(31), // stop=0b11111=31
 };
 //-------------------------------
 #define ADC_BATT ADC_SC1_ADCH(GC_ADC_A11)
@@ -61,7 +66,7 @@ volatile uint8_t gcCfgStat = 0;// GeoCentinela Config Status
 #define GC_CFG_RDMA   0x10 // Reconfigure DMA
 #define GC_CFG_RCFG   0x18 // Reconfiguration OK
 //-------------------------------
-#define FILE_FORMAT 0x01
+#define FILE_FORMAT 0x02
 #define FILENAME_MAX_LENGH 11
 #define PIN_USB 30
 #define WAKE_USB PIN_30
@@ -247,48 +252,48 @@ void cfgGain(uint8_t gain)
 
   digitalWrite(GAIN_CS, LOW);
   switch (gain) {
-  case 0:
-    digitalWrite(GAIN_A0, LOW);
-    digitalWrite(GAIN_A1, LOW);
-    digitalWrite(GAIN_A2, LOW);
-    break;
-  case 1:
-    digitalWrite(GAIN_A0, HIGH);
-    digitalWrite(GAIN_A1, LOW);
-    digitalWrite(GAIN_A2, LOW);
-    break;
-  case 2:
-    digitalWrite(GAIN_A0, LOW);
-    digitalWrite(GAIN_A1, HIGH);
-    digitalWrite(GAIN_A2, LOW);
-    break;
-  case 3:
-    digitalWrite(GAIN_A0, HIGH);
-    digitalWrite(GAIN_A1, HIGH);
-    digitalWrite(GAIN_A2, LOW);
-    break;
-  case 4:
-    digitalWrite(GAIN_A0, LOW);
-    digitalWrite(GAIN_A1, LOW);
-    digitalWrite(GAIN_A2, HIGH);
-    break;
-  case 5:
-    digitalWrite(GAIN_A0, HIGH);
-    digitalWrite(GAIN_A1, LOW);
-    digitalWrite(GAIN_A2, HIGH);
-    break;
-  case 6:
-    digitalWrite(GAIN_A0, LOW);
-    digitalWrite(GAIN_A1, HIGH);
-    digitalWrite(GAIN_A2, HIGH);
-    break;
-  case 7:
-    digitalWrite(GAIN_A0, HIGH);
-    digitalWrite(GAIN_A1, HIGH);
-    digitalWrite(GAIN_A2, HIGH);
-    break;
-  default:
-    break;
+    case 0: {
+      digitalWrite(GAIN_A0, LOW);
+      digitalWrite(GAIN_A1, LOW);
+      digitalWrite(GAIN_A2, LOW);
+    } break;
+    case 1: {
+      digitalWrite(GAIN_A0, HIGH);
+      digitalWrite(GAIN_A1, LOW);
+      digitalWrite(GAIN_A2, LOW);
+    } break;
+    case 2: {
+      digitalWrite(GAIN_A0, LOW);
+      digitalWrite(GAIN_A1, HIGH);
+      digitalWrite(GAIN_A2, LOW);
+    } break;
+    case 3: {
+      digitalWrite(GAIN_A0, HIGH);
+      digitalWrite(GAIN_A1, HIGH);
+      digitalWrite(GAIN_A2, LOW);
+    } break;
+    case 4: {
+      digitalWrite(GAIN_A0, LOW);
+      digitalWrite(GAIN_A1, LOW);
+      digitalWrite(GAIN_A2, HIGH);
+    } break;
+    case 5: {
+      digitalWrite(GAIN_A0, HIGH);
+      digitalWrite(GAIN_A1, LOW);
+      digitalWrite(GAIN_A2, HIGH);
+    } break;
+    case 6: {
+      digitalWrite(GAIN_A0, LOW);
+      digitalWrite(GAIN_A1, HIGH);
+      digitalWrite(GAIN_A2, HIGH);
+    } break;
+    case 7: {
+      digitalWrite(GAIN_A0, HIGH);
+      digitalWrite(GAIN_A1, HIGH);
+      digitalWrite(GAIN_A2, HIGH);
+    } break;
+    default: {
+    } break;
   }
   digitalWrite(GAIN_CS, LOW);
 }
@@ -300,7 +305,7 @@ void cfgAdc()
 
   // general configuration
   ADC0_CFG1 = 0
-    | ADC_CFG1_ADLPC     // lower power: off, on
+    //| ADC_CFG1_ADLPC     // lower power: off, on
     | ADC_CFG1_ADIV(1)   // clock divide: 1, 2, 4, 8
     //| ADC_CFG1_ADLSMP    // sample time: short, long
     | ADC_CFG1_MODE(3)   // conversion mode: 8, 12, 10, 16
@@ -486,6 +491,81 @@ void rcfg()
   cfgDma();
 }
 //----------------------------------------------------------------------
+float getVBat()
+{
+  // general configuration
+  ADC0_CFG1 = 0
+    | ADC_CFG1_ADLPC     // lower power: off, on
+    | ADC_CFG1_ADIV(3)   // clock divide: 1, 2, 4, 8
+    | ADC_CFG1_ADLSMP    // sample time: short, long
+    | ADC_CFG1_MODE(3)   // conversion mode: 8, 12, 10, 16
+#if F_BUS == 24000000
+    | ADC_CFG1_ADICLK(0) // input clock: bus, bus/2, alternate, asynchronous
+#elif F_BUS == 48000000
+    | ADC_CFG1_ADICLK(1) // input clock: bus, bus/2, alternate, asynchronous
+#endif
+  ;
+
+  ADC0_CFG2 = 0
+    | ADC_CFG2_MUXSEL    // adc mux (see pag. 96): ADxxa, ADxxb
+    //| ADC_CG2_ADACKEN    // asynchronous clock output: disable, enable
+    | ADC_CFG2_ADHSC     // high speed configuration: normal, high
+    | ADC_CFG2_ADLSTS(0) // long sample time: 20ext, 12ext, 6ext, 2ext
+  ;
+
+  // control
+  ADC0_SC2 = 0
+    //| ADC_SC2_ADTRG     // trigger select: software, hardware
+    //| ADC_SC2_ACFE      // compare function: disable, enable
+    //| ADC_SC2_ACFGT     // compare function greater than: disable, enable
+    //| ADC_SC2_ACREN     // compare function range: disable, enable
+    //| ADC_SC2_DMAEN     // DMA enable
+    | ADC_SC2_REFSEL(1) // 0->3.3v, 1->1.2v
+  ;
+
+  ADC0_SC3 = 0
+    //| ADC_SC3_ADCO    // continuous conversion: disable, enable
+    | ADC_SC3_AVGE    // enable hardware average
+    | ADC_SC3_AVGS(3) // average select: 0->4, 1->8, 2->16, 3->32
+  ;
+
+  // calibration
+  ADC0_SC3 |= ADC_SC3_CAL; // begin cal
+
+  uint16_t cal_sum;
+  while (ADC0_SC3 & ADC_SC3_CAL);
+
+  cal_sum = (ADC0_CLPS + ADC0_CLP4 + ADC0_CLP3 + ADC0_CLP2 + ADC0_CLP1 + ADC0_CLP0)/2;
+  ADC0_PG = cal_sum | 0x8000;
+
+  cal_sum = (ADC0_CLMS + ADC0_CLM4 + ADC0_CLM3 + ADC0_CLM2 + ADC0_CLM1 + ADC0_CLM0)/2;
+  ADC0_MG = cal_sum | 0x8000;
+
+  // Stop conversion
+  ADC0_SC1A = ADC_SC1_ADCH(0b11111);
+
+  uint32_t bvalue = 0;
+  uint16_t n = 1000;
+  for(uint16_t i = 0; i < n; i++) {
+    ADC0_SC1A = adc_config[4];
+    while(!(ADC0_SC1A & ADC_SC1_COCO));
+    bvalue += ADC0_RA;
+  }
+  bvalue /= n;
+
+  // configure adc
+  cfgAdc();
+
+  // configure DMA
+  cfgDma();
+
+  // reconfigure
+  rcfg();
+
+  float value = bvalue*1.195/pow(2,16);
+  return 21*value;
+}
+//----------------------------------------------------------------------
 // User callback handler
 void callbackhandler() {
   setSyncProvider(getTeensy3Time);
@@ -535,6 +615,8 @@ uint32_t sleep_chrono()
 
     if (lp_cfg->wake_source == WAKE_USB) {
       return 0;
+    } else {
+      syncGps();
     }
   }
 
@@ -635,6 +717,10 @@ boolean gc_stop()
   file.write((int32_t*)&adc_play_cnt, sizeof(int32_t));
   adc_play_cnt = 0;
 
+  // write float vbat:
+  float vbat = getVBat();
+  file.write((uint8_t*)&vbat, sizeof(float));
+
   // file timestamp
   file.timestamp(T_WRITE, year(), month(), day(), hour(), minute(), second());
   file.timestamp(T_ACCESS, year(), month(), day(), hour(), minute(), second());
@@ -697,6 +783,10 @@ boolean file_cfg()
 
     // write uint32_t time_end_seg:
     file.write((uint8_t*)&gc_cfg.time_end_seg, sizeof(uint32_t));
+
+    // write float vbat:
+    float vbat = getVBat();
+    file.write((uint8_t*)&vbat, sizeof(float));
 
     return true;
   }
@@ -808,10 +898,11 @@ void digitalClockDisplay()
   printDigits(second(), false);
   Serial.print(" ");
   Serial.print(day());
-  Serial.print(" ");
+  Serial.print("/");
   Serial.print(month());
-  Serial.print(" ");
+  Serial.print("/");
   Serial.print(year());
   Serial.print(" : ");
   Serial.println(Teensy3Clock.get() % SEG_A_DAY);
 }
+

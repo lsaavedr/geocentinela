@@ -38,8 +38,7 @@ void stop_reading()
   if (HIGH == digitalRead(PIN_USB)) {
     attachInterrupt(PIN_USB, start_reading, FALLING);
     gcPlayStat |= GC_ST_CONFIG;
-  } 
-  else gcPlayStat &= ~GC_ST_CONFIG;
+  } else gcPlayStat &= ~GC_ST_CONFIG;
 }
 
 void setup()
@@ -58,8 +57,7 @@ void setup()
   if (HIGH == digitalRead(PIN_USB)) {
     attachInterrupt(PIN_USB, start_reading, FALLING);
     gcPlayStat |= GC_ST_CONFIG;
-  }
-  else {
+  } else {
     start_reading();
   }
 
@@ -91,7 +89,7 @@ void setup()
   cfgGain(gc_cfg.gain);
 
   // sync gps
-  //syncGps();
+  syncGps();
 }
 
 void loop()
@@ -122,40 +120,47 @@ void loop()
     if (gcPlayStat & GC_ST_STOP) {
       if (gc_stop()) {
         gc_println(PSTR("Stopped!"));
-      }
-      else {
+      } else {
         gc_println(PSTR("Stopped error!"));
       }
 
       if (buffer_errors) gc_println(PSTR("error:loop: buffer!"));
       if (adc_errors) gc_println(PSTR("error:loop: adc!"));
+
+      switch (gc_cfg.time_type) {
+        case 0: {
+          //gcPlayStat |= GC_ST_PLAY;
+        } break;
+        case 1: {
+          gcPlayStat |= GC_ST_PLAY;
+        } break;
+      }
+
+      delay(100);
+      if (HIGH == digitalRead(PIN_USB)) {
+        gcPlayStat &= ~GC_ST_PLAY;
+      }
     }
 
     if (gcPlayStat & GC_ST_PLAY) {
       gcPlayStat &= ~GC_ST_PLAY;
 
       switch (gc_cfg.time_type) {
-      case 0: 
-        {
+        case 0: {
           adc_play_cnt = sleep_chrono();
-        }
-        break;
-      case 1: 
-        {
+        } break;
+        case 1: {
           adc_play_cnt = sleep_daily();
-        } 
-        break;
+        } break;
       }
 
       if (adc_play_cnt != 0 && gc_start()) {
         gc_println(PSTR("Started!"));
-      } 
-      else {
+      } else {
         stop_reading();
       }
     }
-  } 
-  else {
+  } else {
     uint8_t cmd = 0;
     uint32_t length = 0;
 
@@ -170,42 +175,31 @@ void loop()
 
       bool write_cfg = false;
       switch (cmd) {
-      case 'n':
-        {
-          uint8_t head[1] = {
-            't'
-          };
-          gc_cmd(head, 1);
+        case 'n': {
+          gc_println(PSTR("Date:"));
           digitalClockDisplay();
         } break;
-      case 'j': 
-        {
+        case 'j': {
           uint32_t tj = (uint32_t)Serial.parseInt();
           gc_cfg.set_time_begin(tj % SEG_A_DAY);
 
           write_cfg = true;
-        } 
-        break;
-      case 'k': 
-        {
+        } break;
+        case 'k': {
           uint32_t tk = (uint32_t)Serial.parseInt() % SEG_A_DAY;
           gc_cfg.set_time_end(tk % SEG_A_DAY);
 
           write_cfg = true;
-        } 
-        break;
-      case 'l': 
-        { // ls command
+        } break;
+        case 'l': { // ls command
           uint8_t head[1] = { 
             'l'           };
           gc_cmd(head, 1);
 
           sd.ls(LS_R);
           gc_println(PSTR("list with cmd!"));
-        } 
-        break;
-      case 'g': 
-        { // get a file
+        } break;
+        case 'g': { // get a file
           for (cmd = 0; cmd <= FILENAME_MAX_LENGH && cmd < length; cmd++)
             message[cmd] = Serial.read();
           message[cmd] = '\0';
@@ -213,8 +207,7 @@ void loop()
           if (cmd > 0) {
             if (!fileData.open((char*)message, O_READ)) {
               gc_println(PSTR("error:loop:conf:g: open file data!"));
-            } 
-            else {
+            } else {
               uint8_t head[2] = { 
                 'f', cmd               };
               gc_cmd(head, 2);
@@ -230,14 +223,11 @@ void loop()
               gc_println(PSTR("Getting file with cmd!"));
             }
             gc_println((char*)message);
-          } 
-          else {
+          } else {
             gc_println(PSTR("error:loop:conf:g: empty filename!"));
           }
-        } 
-        break;
-      case 'r': 
-        { // remove file
+        } break;
+        case 'r': { // remove file
           for (cmd = 0; cmd <= FILENAME_MAX_LENGH && cmd < length; cmd++)
             message[cmd] = Serial.read();
           message[cmd] = '\0';
@@ -245,27 +235,22 @@ void loop()
           if (cmd > 0) {
             if (!fileData.open((char*)message, O_WRITE)) {
               gc_println(PSTR("error:loop:conf:r: open file data!"));
-            } 
-            else {
+            } else {
               if (!fileData.remove()) {
                 gc_println(PSTR("error:loop:conf:r: remove file data!"));
-              } 
-              else {
+              } else {
                 gc_println(PSTR("Remove file with cmd!"));
               }
             }
             gc_print((char*)message);
           }
-        } 
-        break;
-      case 's': 
-        {
+        } break;
+        case 's': {
           if (length > 0) {
             cmd = Serial.read();
 
             switch (cmd) {
-              case 'o':
-              {
+              case 'o': {
                 if (length > 1) {
                   cmd = Serial.read();
                   gc_cfg.set_gain(cmd);
@@ -273,9 +258,8 @@ void loop()
 
                   write_cfg = true;
                 }
-              }break;
-              case 'g': 
-              {
+              } break;
+              case 'g': {
                 uint8_t settings[21] = { 
                   's',
                   (gc_cfg.gain << 4) | gc_cfg.average,
@@ -299,23 +283,20 @@ void loop()
                   (uint8_t)gc_cfg.gps,
                 };
                 gc_cmd(settings, 21);
-              }break;
-              case 'p': 
-              {
+              } break;
+              case 'p': {
                 gc_println(PSTR("Settings:"));
                 gc_cfg.print();
                 digitalClockDisplay();
-              }break;
-              case 'm': 
-              {
+              } break;
+              case 'm': {
                 if (length > 1) {
                   cmd = Serial.read();
                   gc_cfg.set_average(cmd);
                   write_cfg = true;
                 }
-              }break;
-              case 's': 
-              {
+              } break;
+              case 's': {
                 if (length > 4) {
                   uint32_t tick_time_useg;
                   ((uint8_t*)&tick_time_useg)[0] = Serial.read();
@@ -325,17 +306,15 @@ void loop()
                   gc_cfg.set_tick_time_useg(tick_time_useg);
                   write_cfg = true;
                 }
-              }break;
-              case 't': 
-              {
+              } break;
+              case 't': {
                 if (length > 1) {
                   cmd = Serial.read();
                   gc_cfg.set_time_type(cmd);
                   write_cfg = true;
                 }
-              }break;
-              case 'u': 
-              {
+              } break;
+              case 'u': {
                 if (length > 4) {
                   uint32_t time_begin_seg;
                   ((uint8_t*)&time_begin_seg)[0] = Serial.read();
@@ -345,9 +324,8 @@ void loop()
                   gc_cfg.set_time_begin(time_begin_seg % SEG_A_DAY);
                   write_cfg = true;
                 }
-              }break;
-              case 'v': 
-              {
+              } break;
+              case 'v': {
                 if (length > 4) {
                   uint32_t time_end_seg;
                   ((uint8_t*)&time_end_seg)[0] = Serial.read();
@@ -357,18 +335,16 @@ void loop()
                   gc_cfg.set_time_end(time_end_seg % SEG_A_DAY);
                   write_cfg = true;
                 }
-              }break;
-              case 'z': 
-              {
+              } break;
+              case 'z': {
                 uint32_t z = Teensy3Clock.get();
                 uint32_t u = (z+60*10) % SEG_A_DAY;
                 uint32_t v = (z+60*20) % SEG_A_DAY;
                 gc_cfg.set_time_begin(u);
                 gc_cfg.set_time_end(v);
                 write_cfg = true;
-              }break;
-              case 'a': 
-              {
+              } break;
+              case 'a': {
                 if (length > 2) {
                   uint16_t adc_buffer_size;
                   ((uint8_t*)&adc_buffer_size)[0] = Serial.read();
@@ -376,9 +352,8 @@ void loop()
                   gc_cfg.set_adc_buffer_size(adc_buffer_size);
                   write_cfg = true;
                 }
-              }break;
-              case 'b': 
-              {
+              } break;
+              case 'b': {
                 if (length > 2) {
                   uint16_t sd_buffer_size;
                   ((uint8_t*)&sd_buffer_size)[0] = Serial.read();
@@ -386,49 +361,49 @@ void loop()
                   gc_cfg.set_sd_buffer_size(sd_buffer_size);
                   write_cfg = true;
                 }
-              }break;
-              case 'r': 
-              {
+              } break;
+              case 'r': {
                 time_t pctime = (time_t)(Serial.parseInt());
                 if (pctime != 0) {
                   delay(10);
                   Teensy3Clock.set(pctime); // set the RTC
                   setTime(pctime);
                 }
-              }break;
-              case 'w': 
-              {
+              } break;
+              case 'w': {
                 if (length > 1) {
                   cmd = (uint8_t)Serial.read();
                   if ((cmd & POWER_UP_MASK) > 0) setPowerUp(cmd);
                   else setPowerDown(cmd);
                 }
-              }break;
-              case 'y': 
-              {
+              } break;
+              case 'y': {
                 syncGps();
-              }break;
-              case 'x':
-              {
-                gc_cfg.toggle_gps();
-                write_cfg = true;
-              }break;
-            default: 
-              {
+              } break;
+              case 'x': {
+                if (length > 1) {
+                  cmd = Serial.read();
+                  gc_cfg.set_gps(cmd);
+                  write_cfg = true;
+                }
+              } break;
+              case 'q': {
+                float vbat = getVBat();
+                gc_println(PSTR("Battery:"));
+                Serial.print(vbat);
+                Serial.println("V");
+              } break;
+              default: {
                 gc_println(PSTR("bad set!"));
-              }break;
+              } break;
             }
-          } 
-          else {
+          } else {
             gc_println(PSTR("empty set!"));
           }
-        } 
-        break;
-      default: 
-        {
+        } break;
+        default: {
           gc_println(PSTR("bad cmd!"));
-        } 
-        break;
+        } break;
       }
 
       if (write_cfg) {

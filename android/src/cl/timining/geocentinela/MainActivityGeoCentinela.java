@@ -88,6 +88,14 @@ public class MainActivityGeoCentinela extends Activity
             }
         });
 
+        Button vbat = (Button)this.findViewById(R.id.vbat);
+        vbat.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+    			sendCmd(new byte[] { 's', 'q' });
+            }
+        });
+
         Button ls = (Button)this.findViewById(R.id.ls);
         ls.setOnClickListener(new View.OnClickListener() {
             @Override

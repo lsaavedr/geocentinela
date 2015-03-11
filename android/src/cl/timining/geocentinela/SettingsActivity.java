@@ -336,14 +336,6 @@ public class SettingsActivity extends Activity
 			}
 		});
 
-		gps.setOnClickListener(new View.OnClickListener() {
-			@Override
-			public void onClick(View arg0)
-			{
-				sendCmd(new byte[] { 's', 'x' });
-			}
-		});
-
 		final TextView delay = (TextView)this.findViewById(R.id.delay);
 		delay.setOnClickListener(new View.OnClickListener() {
 			@Override
@@ -628,6 +620,11 @@ public class SettingsActivity extends Activity
             				(byte)((end_long >> 32) & 0xff)});
             	}
 
+            	if (gps.isChecked()) {
+        			sendCmd(new byte[] { 's', 'x', 0x01 });
+        		} else {
+        			sendCmd(new byte[] { 's', 'x', 0x00 });
+        		}
             	finish();
             }
         });

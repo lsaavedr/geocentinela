@@ -56,8 +56,14 @@ public:
     this->log = gcPrintln;
   }
 
-  void toggle_gps() {
+  void toggle_gps()
+  {
     gps = !gps;
+  }
+
+  void set_gps(uint8_t gps)
+  {
+    this->gps = gps > 0;
   }
 
   bool write();
@@ -72,21 +78,21 @@ public:
   void set_average(uint8_t average)
   {
     switch (average) {
-    case 4:
-      this->average = 0;
-      break;
-    case 8:
-      this->average = 1;
-      break;
-    case 16:
-      this->average = 2;
-      break;
-    case 32:
-      this->average = 3;
-      break;
-    default:
-      this->average = 4;
-      break;
+      case 4: {
+        this->average = 0;
+      } break;
+      case 8: {
+        this->average = 1;
+      } break;
+      case 16: {
+        this->average = 2;
+      } break;
+      case 32: {
+        this->average = 3;
+      } break;
+      default: {
+        this->average = 4;
+      } break;
     }
   }
 
@@ -131,3 +137,4 @@ private:
 };
 
 #endif // GC_CFG_H
+
