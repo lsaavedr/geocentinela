@@ -401,6 +401,49 @@ void loop()
             gc_println(PSTR("empty set!"));
           }
         } break;
+        case 'i': {
+          if (length > 0) {
+            cmd = Serial.read();
+
+            switch (cmd) {
+              case 't': {
+                gc_println(PSTR("HID:"));
+                Serial.println();
+                Serial.print(SIM_UIDH);
+                Serial.print(".");
+                Serial.print(SIM_UIDMH);
+                Serial.print(".");
+                Serial.print(SIM_UIDML);
+                Serial.print(".");
+                Serial.println(SIM_UIDL);
+              } break;
+              case 'p': {
+                uint8_t ip[17] = { 
+                  'i',
+                  ((uint8_t*)&SIM_UIDH)[0],
+                  ((uint8_t*)&SIM_UIDH)[1],
+                  ((uint8_t*)&SIM_UIDH)[2],
+                  ((uint8_t*)&SIM_UIDH)[3],
+                  ((uint8_t*)&SIM_UIDMH)[0],
+                  ((uint8_t*)&SIM_UIDMH)[1],
+                  ((uint8_t*)&SIM_UIDMH)[2],
+                  ((uint8_t*)&SIM_UIDMH)[3],
+                  ((uint8_t*)&SIM_UIDML)[0],
+                  ((uint8_t*)&SIM_UIDML)[1],
+                  ((uint8_t*)&SIM_UIDML)[2],
+                  ((uint8_t*)&SIM_UIDML)[3],
+                  ((uint8_t*)&SIM_UIDL)[0],
+                  ((uint8_t*)&SIM_UIDL)[1],
+                  ((uint8_t*)&SIM_UIDL)[2],
+                  ((uint8_t*)&SIM_UIDL)[3],
+                };
+                gc_cmd(ip, 17);
+              } break;
+              default: {
+              } break;
+            }
+          }
+        } break;
         default: {
           gc_println(PSTR("bad cmd!"));
         } break;
