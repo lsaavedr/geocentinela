@@ -23,15 +23,13 @@ sleep_block_t* lp_cfg; // sleep configuration
 uint16_t* adc_ring_buffer = NULL;
 
 uint32_t adc_config[6] = {
-  ADC_SC1_ADCH(GC_ADC_A3),
+  ADC_SC1_ADCH(GC_ADC_A4),
   ADC_SC1_ADCH(GC_ADC_A6),
   ADC_SC1_ADCH(GC_ADC_A9),
   ADC_SC1_ADCH(31), // stop=0b11111=31
-  ADC_SC1_ADCH(GC_ADC_A11), // read battery state
+  ADC_SC1_ADCH(GC_ADC_A10), // read battery state
   ADC_SC1_ADCH(31), // stop=0b11111=31
 };
-//-------------------------------
-#define ADC_BATT ADC_SC1_ADCH(GC_ADC_A11)
 //-------------------------------
 #define SD_CS SS
 #define SD_MOSI 11
@@ -71,18 +69,18 @@ volatile uint8_t gcCfgStat = 0;// GeoCentinela Config Status
 #define PIN_USB 30
 #define WAKE_USB PIN_30
 //-------------------------------
-#define DIGITAL_POW 14
-#define ANALOG1_POW 22
-#define ANALOG2_POW 15
+#define DIGITAL_POW 19 // 3.3V
+#define ANALOG1_POW 22 // 5Va
+#define ANALOG2_POW 21 // 3.3VP
 #define DIGITAL_MASK 0b100
 #define ANALOG1_MASK 0b010
 #define ANALOG2_MASK 0b001
 #define POWER_UP_MASK 0b1000
 //-------------------------------
-#define GAIN_CS 21
-#define GAIN_A0 19
-#define GAIN_A1 16
-#define GAIN_A2 18
+#define GAIN_CS 15
+#define GAIN_A0 16
+#define GAIN_A1 14
+#define GAIN_A2 17
 //-------------------------------
 TinyGPS gps;
 #define HOUR_OFFSET -4
@@ -330,7 +328,7 @@ void cfgAdc()
     //| ADC_SC2_ACFGT     // compare function greater than: disable, enable
     //| ADC_SC2_ACREN     // compare function range: disable, enable
     | ADC_SC2_DMAEN     // DMA enable
-    | ADC_SC2_REFSEL(1) // 0->3.3v, 1->1.2v
+    | ADC_SC2_REFSEL(0) // 0->3.3v, 1->1.2v
   ;
 
   if (gc_cfg.average < 4) {
