@@ -28,7 +28,7 @@ void start_reading()
 void stop_reading()
 {
   cli();
-  setPowerDown(ANALOG1_MASK);
+  setPowerDown(PGA_MASK);
   if (adc_rtc_stop == 0) adc_rtc_stop = Teensy3Clock.get();
 
   gcPlayStat = 0;
@@ -47,7 +47,7 @@ void setup()
   cfgPow();
 
   // digital power up
-  setPowerUp(DIGITAL_MASK); delay(200);
+  setPowerUp(SDX_MASK); delay(200);
 
   // USB wakeup
   pinMode(PIN_USB, INPUT);

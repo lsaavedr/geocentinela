@@ -25,7 +25,7 @@ public:
   uint16_t sd_buffer_size = 4096; // 4096*2
   uint16_t sd_buffer_size_bytes = sd_buffer_size * sizeof(uint16_t);
 
-  boolean gps = true;
+  boolean gps = false;
 
   static void gcCmd(uint8_t* cmd, uint8_t n)
   {

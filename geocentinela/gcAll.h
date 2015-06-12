@@ -19,15 +19,18 @@ sleep_block_t* lp_cfg; // sleep configuration
 #define GC_ADC_A10 0
 #define GC_ADC_A11 19
 #define GC_ADC_A12 3
+#define GC_ADC_REFSEL 0 // 0->3.3v(ext), 1->1.2v
 //-------------------------------
 uint16_t* adc_ring_buffer = NULL;
 
-uint32_t adc_config[6] = {
+uint32_t adc_config[8] = {
   ADC_SC1_ADCH(GC_ADC_A4),
   ADC_SC1_ADCH(GC_ADC_A6),
   ADC_SC1_ADCH(GC_ADC_A9),
   ADC_SC1_ADCH(31), // stop=0b11111=31
   ADC_SC1_ADCH(GC_ADC_A10), // read battery state
+  ADC_SC1_ADCH(31), // stop=0b11111=31
+  ADC_SC1_ADCH(GC_ADC_A11), // read zero vref
   ADC_SC1_ADCH(31), // stop=0b11111=31
 };
 //-------------------------------
@@ -64,17 +67,17 @@ volatile uint8_t gcCfgStat = 0;// GeoCentinela Config Status
 #define GC_CFG_RDMA   0x10 // Reconfigure DMA
 #define GC_CFG_RCFG   0x18 // Reconfiguration OK
 //-------------------------------
-#define FILE_FORMAT 0x02
+#define FILE_FORMAT 0x03
 #define FILENAME_MAX_LENGH 11
 #define PIN_USB 30
 #define WAKE_USB PIN_30
 //-------------------------------
-#define DIGITAL_POW 19 // 3.3V
-#define ANALOG1_POW 22 // 5Va
-#define ANALOG2_POW 21 // 3.3VP
-#define DIGITAL_MASK 0b100
-#define ANALOG1_MASK 0b010
-#define ANALOG2_MASK 0b001
+#define SDX_POW 19 // 3.3V
+#define PGA_POW 22 // 5Va
+#define EXT_POW 21 // 3.3VP
+#define SDX_MASK 0b100
+#define PGA_MASK 0b010
+#define EXT_MASK 0b001
 #define POWER_UP_MASK 0b1000
 //-------------------------------
 #define GAIN_CS 15
@@ -84,7 +87,7 @@ volatile uint8_t gcCfgStat = 0;// GeoCentinela Config Status
 //-------------------------------
 TinyGPS gps;
 #define HOUR_OFFSET -4
-#define GPS_RTC_SYNC_TIME 1*60*1000 // 5min
+#define GPS_RTC_SYNC_TIME 5*60*1000 // 5min
 #define GPS Serial1
 //-------------------------------
 #define LOG_TIMEOUT 1000
@@ -99,9 +102,9 @@ time_t getTeensy3Time()
 
 void setPowerUp(uint8_t mask)
 {
-  if ((mask & DIGITAL_MASK) > 0) {
+  if ((mask & SDX_MASK) > 0) {
     digitalWrite(SD_CS, HIGH);
-    digitalWrite(DIGITAL_POW, HIGH);
+    digitalWrite(SDX_POW, HIGH);
     delay(1000);
     if (!sd.chdir(1)) {
       while(!sd.begin(SD_CS, SPI_FULL_SPEED)) {
@@ -112,27 +115,27 @@ void setPowerUp(uint8_t mask)
     setSyncProvider(getTeensy3Time);
   }
 
-  if ((mask & ANALOG1_MASK) > 0)
-    digitalWrite(ANALOG1_POW, HIGH);
+  if ((mask & PGA_MASK) > 0)
+    digitalWrite(PGA_POW, HIGH);
 
-  if ((mask & ANALOG2_MASK) > 0)
-    digitalWrite(ANALOG2_POW, HIGH);
+  if ((mask & EXT_MASK) > 0)
+    digitalWrite(EXT_POW, HIGH);
 }
 
 void setPowerDown(uint8_t mask)
 {
-  if ((mask & DIGITAL_MASK) > 0) {
+  if ((mask & SDX_MASK) > 0) {
     digitalWrite(SD_CS, LOW);
     pinMode(SD_MOSI, OUTPUT);
     digitalWrite(SD_MOSI, LOW);
-    digitalWrite(DIGITAL_POW, LOW);
+    digitalWrite(SDX_POW, LOW);
   }
 
-  if ((mask & ANALOG1_MASK) > 0)
-    digitalWrite(ANALOG1_POW, LOW);
+  if ((mask & PGA_MASK) > 0)
+    digitalWrite(PGA_POW, LOW);
 
-  if ((mask & ANALOG2_MASK) > 0)
-    digitalWrite(ANALOG2_POW, LOW);
+  if ((mask & EXT_MASK) > 0)
+    digitalWrite(EXT_POW, LOW);
 }
 
 String strDouble(String str, double val, uint8_t precision)
@@ -209,7 +212,7 @@ void syncGps()
   if (!gc_cfg.gps) return;
 
   // GPS power on
-  setPowerUp(ANALOG2_MASK);
+  setPowerUp(EXT_MASK);
   delay(1000);
 
   cfgGps();
@@ -227,17 +230,17 @@ void syncGps()
   }
 
   // GPS power off
-  setPowerDown(ANALOG2_MASK);
+  setPowerDown(EXT_MASK);
   delay(10000);
 }
 
 void cfgPow()
 {
-  pinMode(DIGITAL_POW, OUTPUT);
-  pinMode(ANALOG1_POW, OUTPUT);
-  pinMode(ANALOG2_POW, OUTPUT);
+  pinMode(SDX_POW, OUTPUT);
+  pinMode(PGA_POW, OUTPUT);
+  pinMode(EXT_POW, OUTPUT);
 
-  setPowerDown(DIGITAL_MASK | ANALOG1_MASK | ANALOG2_MASK);
+  setPowerDown(SDX_MASK | PGA_MASK | EXT_MASK);
 }
 
 void cfgGain(uint8_t gain)
@@ -323,12 +326,12 @@ void cfgAdc()
 
   // control
   ADC0_SC2 = 0
-    //| ADC_SC2_ADTRG     // trigger select: software, hardware
-    //| ADC_SC2_ACFE      // compare function: disable, enable
-    //| ADC_SC2_ACFGT     // compare function greater than: disable, enable
-    //| ADC_SC2_ACREN     // compare function range: disable, enable
-    | ADC_SC2_DMAEN     // DMA enable
-    | ADC_SC2_REFSEL(0) // 0->3.3v, 1->1.2v
+    //| ADC_SC2_ADTRG                 // trigger select: software, hardware
+    //| ADC_SC2_ACFE                  // compare function: disable, enable
+    //| ADC_SC2_ACFGT                 // compare function greater than: disable, enable
+    //| ADC_SC2_ACREN                 // compare function range: disable, enable
+    | ADC_SC2_DMAEN                 // DMA enable
+    | ADC_SC2_REFSEL(GC_ADC_REFSEL) // 0->3.3v, 1->1.2v
   ;
 
   if (gc_cfg.average < 4) {
@@ -767,6 +770,18 @@ boolean file_cfg()
     // write uint8_t file format
     file.write((uint8_t)FILE_FORMAT);
 
+    // write uint32_t SIM_UIDH
+    file.write((uint8_t*)&SIM_UIDH, sizeof(uint32_t));
+
+    // write uint32_t SIM_UIDMH
+    file.write((uint8_t*)&SIM_UIDMH, sizeof(uint32_t));
+
+    // write uint32_t SIM_UIDML
+    file.write((uint8_t*)&SIM_UIDML, sizeof(uint32_t));
+
+    // write uint32_t SIM_UIDL
+    file.write((uint8_t*)&SIM_UIDL, sizeof(uint32_t));
+
     // write uint8_t ((gain << 4)| average):
     file.write((gc_cfg.gain << 4) | gc_cfg.average);
 
@@ -820,7 +835,7 @@ boolean gc_start()
   delta = 0; tail = 0; sd_head = 0;
   adc_errors = 0; buffer_errors = 0;
   adc_rtc_stop = 0;
-  setPowerUp(ANALOG1_MASK); delay(200);
+  setPowerUp(PGA_MASK); delay(200);
 
   // configure file
   if (file_cfg()) {
@@ -841,7 +856,7 @@ boolean gc_start()
     if (!adc_play.begin(adc_play_callback, gc_cfg.tick_time_useg)) {
       sd_buffer[sd_head-1] = 61153;
       gc_println(PSTR("error:start: adc_play!"));
-      setPowerDown(ANALOG1_MASK);
+      setPowerDown(PGA_MASK);
       return false;
     }
 
@@ -849,7 +864,7 @@ boolean gc_start()
     return true;
   } else {
     gc_println(PSTR("error:start: file!"));
-    setPowerDown(ANALOG1_MASK);
+    setPowerDown(PGA_MASK);
     return false;
   }
 }
@@ -903,4 +918,3 @@ void digitalClockDisplay()
   Serial.print(" : ");
   Serial.println(Teensy3Clock.get() % SEG_A_DAY);
 }
-
