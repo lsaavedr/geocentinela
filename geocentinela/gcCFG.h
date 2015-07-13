@@ -10,15 +10,15 @@
 
 class gcCFG {
 public:
-  uint8_t gain = 0; //  0->1, 1->2, 2->4, 3->8, 4->16, 5->32, 6->6, 7->16
-  uint8_t average = 3; //  0->4, 1->8, 2->16, 3->32
+  uint8_t gain = 0;              //  0->1, 1->2, 2->4, 3->8, 4->16, 5->32, 6->6, 7->16
+  uint8_t average = 2;           //  0->4, 1->8, 2->16, 3->32
   uint32_t tick_time_useg = 250; // 4ksps
 
   uint8_t time_type = 0; // testing
   uint32_t time_begin_seg = 5;
   uint32_t time_end_seg = 10;
 
-  uint16_t adc_buffer_size = 2048; // 2048*2
+  uint16_t adc_buffer_size = 4096; // 2048*2
   uint16_t adc_buffer_size_bytes = adc_buffer_size * sizeof(uint16_t);
   uint16_t adc_buffer_hash = adc_buffer_size - 1;
 

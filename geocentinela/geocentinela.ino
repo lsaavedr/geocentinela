@@ -16,24 +16,28 @@
 
 void start_reading()
 {
-  cli();
+  noInterrupts();
   if (LOW == digitalRead(PIN_USB)) {
     attachInterrupt(PIN_USB, stop_reading, RISING);
     gcPlayStat = 0;
     gcPlayStat |= GC_ST_PLAY;
   }
-  sei();
+  interrupts();
+
+  CORE_PIN10_CONFIG &= ~PORT_PCR_DSE;
+  CORE_PIN11_CONFIG &= ~PORT_PCR_DSE;
+  CORE_PIN13_CONFIG &= ~PORT_PCR_DSE;
 }
 
 void stop_reading()
 {
-  cli();
+  noInterrupts();
   setPowerDown(PGA_MASK);
   if (adc_rtc_stop == 0) adc_rtc_stop = Teensy3Clock.get();
 
   gcPlayStat = 0;
   gcPlayStat |= GC_ST_STOP;
-  sei();
+  interrupts();
 
   if (HIGH == digitalRead(PIN_USB)) {
     attachInterrupt(PIN_USB, start_reading, FALLING);
@@ -95,6 +99,25 @@ void setup()
 void loop()
 {
   if (LOW == digitalRead(PIN_USB)) {
+    if (gcPlayStat & GC_ST_PLAY) {
+      gcPlayStat &= ~GC_ST_PLAY;
+
+      switch (gc_cfg.time_type) {
+        case 0: {
+          adc_play_cnt = sleep_chrono();
+        } break;
+        case 1: {
+          adc_play_cnt = sleep_daily();
+        } break;
+      }
+
+      if (adc_play_cnt != 0 && gc_start()) {
+        gc_println(PSTR("Started!"));
+      } else {
+        stop_reading();
+      }
+    }
+
     while (gcPlayStat & GC_ST_READING) {
       while (delta > 3) {
         if (sd_head == gc_cfg.sd_buffer_size) {
@@ -106,12 +129,12 @@ void loop()
 
         tail &= gc_cfg.adc_buffer_hash;
 
-        cli();
+        noInterrupts();
         delta--;
-        sei();
+        interrupts();
       }
 
-      if (file.writeError) {
+      if (file.getWriteError()) {
         gc_println(PSTR("error:loop: file write!"));
         stop_reading();
       }
@@ -139,25 +162,6 @@ void loop()
       delay(100);
       if (HIGH == digitalRead(PIN_USB)) {
         gcPlayStat &= ~GC_ST_PLAY;
-      }
-    }
-
-    if (gcPlayStat & GC_ST_PLAY) {
-      gcPlayStat &= ~GC_ST_PLAY;
-
-      switch (gc_cfg.time_type) {
-        case 0: {
-          adc_play_cnt = sleep_chrono();
-        } break;
-        case 1: {
-          adc_play_cnt = sleep_daily();
-        } break;
-      }
-
-      if (adc_play_cnt != 0 && gc_start()) {
-        gc_println(PSTR("Started!"));
-      } else {
-        stop_reading();
       }
     }
   } else {

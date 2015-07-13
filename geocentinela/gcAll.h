@@ -4,7 +4,7 @@ void gc_println(const char *log_string);
 gcCFG gc_cfg(PSTR("CNT.CFG"), gc_println);
 //-------------------------------
 TEENSY3_LP lp = TEENSY3_LP();
-sleep_block_t* lp_cfg; // sleep configuration
+sleep_block_t* lp_cfg = NULL; // sleep configuration
 //-------------------------------
 #define GC_ADC_A0 5
 #define GC_ADC_A1 14
@@ -296,25 +296,62 @@ void cfgGain(uint8_t gain)
     default: {
     } break;
   }
-  digitalWrite(GAIN_CS, LOW);
+  digitalWrite(GAIN_CS, HIGH);
 }
 
+#if F_BUS == 60000000
+  #define ADC_CFG1_16BIT  ADC_CFG1_ADIV(2) | ADC_CFG1_ADICLK(1) // 7.5 MHz
+#elif F_BUS == 56000000
+  #define ADC_CFG1_16BIT  ADC_CFG1_ADIV(2) | ADC_CFG1_ADICLK(1) // 7 MHz
+#elif F_BUS == 48000000
+  #define ADC_CFG1_16BIT  ADC_CFG1_ADIV(1) | ADC_CFG1_ADICLK(1) // 12 MHz
+#elif F_BUS == 40000000
+  #define ADC_CFG1_16BIT  ADC_CFG1_ADIV(1) | ADC_CFG1_ADICLK(1) // 10 MHz
+#elif F_BUS == 36000000
+  #define ADC_CFG1_16BIT  ADC_CFG1_ADIV(1) | ADC_CFG1_ADICLK(1) // 9 MHz
+#elif F_BUS == 24000000
+  #define ADC_CFG1_16BIT  ADC_CFG1_ADIV(1) | ADC_CFG1_ADICLK(0) // 12 MHz
+#elif F_BUS == 16000000
+  #define ADC_CFG1_16BIT  ADC_CFG1_ADIV(0) | ADC_CFG1_ADICLK(0) // 8 MHz
+#elif F_BUS == 8000000
+  #define ADC_CFG1_16BIT  ADC_CFG1_ADIV(0) | ADC_CFG1_ADICLK(0) // 8 MHz
+#elif F_BUS == 4000000
+  #define ADC_CFG1_16BIT  ADC_CFG1_ADIV(0) | ADC_CFG1_ADICLK(0) // 4 MHz
+#elif F_BUS == 2000000
+  #define ADC_CFG1_16BIT  ADC_CFG1_ADIV(0) | ADC_CFG1_ADICLK(0) // 2 MHz
+#else
+#error "F_BUS must be 60, 56, 48, 40, 36, 24, 4 or 2 MHz"
+#endif
 void cfgAdc()
 {
   // ADC clock
   SIM_SCGC6 |= SIM_SCGC6_ADC0;
 
+  // vref:
+#if GC_ADC_REFSEL == 1
+  VREF_TRM = 0
+    | VREF_TRM_CHOPEN
+    | VREF_TRM_TRIM(0x20);
+
+  VREF_SC = 0
+    | VREF_SC_VREFEN     // Internal Voltage Reference enable
+    | VREF_SC_REGEN      // Regulator enable
+    | VREF_SC_ICOMPEN    // Second order curvature compensation enable
+    | VREF_SC_MODE_LV(1) // power buffer mode: 0->Bandgap on only, 1->High, 2->Low
+  ;
+#else
+  VREF_TRM = 0;
+  VREF_SC = 0;
+#endif
+
   // general configuration
   ADC0_CFG1 = 0
     //| ADC_CFG1_ADLPC     // lower power: off, on
-    | ADC_CFG1_ADIV(1)   // clock divide: 1, 2, 4, 8
+    //| ADC_CFG1_ADIV(1)   // clock divide: 1, 2, 4, 8
     //| ADC_CFG1_ADLSMP    // sample time: short, long
     | ADC_CFG1_MODE(3)   // conversion mode: 8, 12, 10, 16
-#if F_BUS == 24000000
-    | ADC_CFG1_ADICLK(0) // input clock: bus, bus/2, alternate, asynchronous
-#elif F_BUS == 48000000
-    | ADC_CFG1_ADICLK(1) // input clock: bus, bus/2, alternate, asynchronous
-#endif
+    //| ADC_CFG1_ADICLK(1) // input clock: bus, bus/2, alternate, asynchronous
+    | ADC_CFG1_16BIT       // set adc_clock, i.e: ADC_CFG1_ADIV and ADC_CFG1_ADICLK
   ;
 
   ADC0_CFG2 = 0
@@ -455,17 +492,18 @@ boolean rcfgBuff()
   sd_buffer = (uint16_t*) calloc(gc_cfg.sd_buffer_size, sizeof(uint16_t));
   lp_cfg = (sleep_block_t*) calloc(1, sizeof(sleep_block_t));
 
-  memset(adc_ring_buffer, 0, gc_cfg.adc_buffer_size_bytes);
-
   if (adc_ring_buffer && sd_buffer && lp_cfg) {
+    memset(adc_ring_buffer, 0, gc_cfg.adc_buffer_size_bytes);
+
     gcCfgStat |= GC_CFG_RBUFF;
     return true;
-  } else {
-    if (adc_ring_buffer) { free(adc_ring_buffer); adc_ring_buffer = NULL; }
-    if (sd_buffer) { free(sd_buffer); sd_buffer = NULL; }
-    if (lp_cfg) { free(lp_cfg); lp_cfg = NULL; }
-    return false;
   }
+
+  if (adc_ring_buffer) { free(adc_ring_buffer); adc_ring_buffer = NULL; }
+  if (sd_buffer) { free(sd_buffer); sd_buffer = NULL; }
+  if (lp_cfg) { free(lp_cfg); lp_cfg = NULL; }
+
+  return false;
 }
 
 void rcfgAdc()
@@ -494,23 +532,32 @@ void rcfg()
 //----------------------------------------------------------------------
 float getVBat()
 {
+  // vref:
+  VREF_TRM = 0
+    | VREF_TRM_CHOPEN
+    | VREF_TRM_TRIM(0x20);
+
+  VREF_SC = 0
+    | VREF_SC_VREFEN     // Internal Voltage Reference enable
+    | VREF_SC_REGEN      // Regulator enable
+    | VREF_SC_ICOMPEN    // Second order curvature compensation enable
+    | VREF_SC_MODE_LV(1) // power buffer mode: 0->Bandgap on only, 1->High, 2->Low
+  ;
+
   // general configuration
   ADC0_CFG1 = 0
-    | ADC_CFG1_ADLPC     // lower power: off, on
-    | ADC_CFG1_ADIV(3)   // clock divide: 1, 2, 4, 8
+    //| ADC_CFG1_ADLPC     // lower power: off, on
+    //| ADC_CFG1_ADIV(1)   // clock divide: 1, 2, 4, 8
     | ADC_CFG1_ADLSMP    // sample time: short, long
     | ADC_CFG1_MODE(3)   // conversion mode: 8, 12, 10, 16
-#if F_BUS == 24000000
-    | ADC_CFG1_ADICLK(0) // input clock: bus, bus/2, alternate, asynchronous
-#elif F_BUS == 48000000
-    | ADC_CFG1_ADICLK(1) // input clock: bus, bus/2, alternate, asynchronous
-#endif
+    //| ADC_CFG1_ADICLK(1) // input clock: bus, bus/2, alternate, asynchronous
+    | ADC_CFG1_16BIT       // set adc_clock, i.e: ADC_CFG1_ADIV and ADC_CFG1_ADICLK
   ;
 
   ADC0_CFG2 = 0
     | ADC_CFG2_MUXSEL    // adc mux (see pag. 96): ADxxa, ADxxb
     //| ADC_CG2_ADACKEN    // asynchronous clock output: disable, enable
-    | ADC_CFG2_ADHSC     // high speed configuration: normal, high
+    //| ADC_CFG2_ADHSC     // high speed configuration: normal, high
     | ADC_CFG2_ADLSTS(0) // long sample time: 20ext, 12ext, 6ext, 2ext
   ;
 
@@ -563,7 +610,7 @@ float getVBat()
   // reconfigure
   rcfg();
 
-  float value = bvalue*1.195/pow(2,16);
+  float value = 1.195*bvalue/65536.0;
   return 21*value;
 }
 //----------------------------------------------------------------------
@@ -708,25 +755,25 @@ boolean gc_stop()
   file.write(sd_buffer, sd_head * sizeof(uint16_t));
 
   // save errors
-  file.write((uint8_t*)&buffer_errors, sizeof(uint32_t));
-  file.write((uint8_t*)&adc_errors, sizeof(uint32_t));
+  file.write((uint8_t*)&buffer_errors, sizeof(uint32_t)); // 4
+  file.write((uint8_t*)&adc_errors, sizeof(uint32_t)); // +4 = 8
 
   // save adc_rtc_stop
-  file.write((uint8_t*)&adc_rtc_stop, sizeof(uint32_t));
+  file.write((uint8_t*)&adc_rtc_stop, sizeof(uint32_t)); // +4 = 12
 
   // save act_play_cnt
-  file.write((int32_t*)&adc_play_cnt, sizeof(int32_t));
+  file.write((int32_t*)&adc_play_cnt, sizeof(int32_t)); // +4 = 16
   adc_play_cnt = 0;
 
   // write float vbat:
   float vbat = getVBat();
-  file.write((uint8_t*)&vbat, sizeof(float));
+  file.write((uint8_t*)&vbat, sizeof(float)); // +4 = 20
 
   // file timestamp
   file.timestamp(T_WRITE, year(), month(), day(), hour(), minute(), second());
   file.timestamp(T_ACCESS, year(), month(), day(), hour(), minute(), second());
 
-  if (file.writeError) {
+  if (file.getWriteError()) {
     gc_println(PSTR("error:stop: write file!"));
     return false;
   }
@@ -768,38 +815,38 @@ boolean file_cfg()
     return false;
   } else {
     // write uint8_t file format
-    file.write((uint8_t)FILE_FORMAT);
+    file.write((uint8_t)FILE_FORMAT); // 1
 
     // write uint32_t SIM_UIDH
-    file.write((uint8_t*)&SIM_UIDH, sizeof(uint32_t));
+    file.write((uint8_t*)&SIM_UIDH, sizeof(uint32_t)); // +4 = 5
 
     // write uint32_t SIM_UIDMH
-    file.write((uint8_t*)&SIM_UIDMH, sizeof(uint32_t));
+    file.write((uint8_t*)&SIM_UIDMH, sizeof(uint32_t)); // +4 = 9
 
     // write uint32_t SIM_UIDML
-    file.write((uint8_t*)&SIM_UIDML, sizeof(uint32_t));
+    file.write((uint8_t*)&SIM_UIDML, sizeof(uint32_t)); // +4 = 13
 
     // write uint32_t SIM_UIDL
-    file.write((uint8_t*)&SIM_UIDL, sizeof(uint32_t));
+    file.write((uint8_t*)&SIM_UIDL, sizeof(uint32_t)); // +4 = 17
 
     // write uint8_t ((gain << 4)| average):
-    file.write((gc_cfg.gain << 4) | gc_cfg.average);
+    file.write((gc_cfg.gain << 4) | gc_cfg.average); // +1 = 18
 
     // write uint32_t tick_time_useg:
-    file.write((uint8_t*)&gc_cfg.tick_time_useg, sizeof(uint32_t));
+    file.write((uint8_t*)&gc_cfg.tick_time_useg, sizeof(uint32_t)); // +4 = 22
 
     // write uint8_t time_type:
-    file.write(gc_cfg.time_type);
+    file.write(gc_cfg.time_type); // +1 = 23
 
     // write uint32_t time_begin_seg:
-    file.write((uint8_t*)&gc_cfg.time_begin_seg, sizeof(uint32_t));
+    file.write((uint8_t*)&gc_cfg.time_begin_seg, sizeof(uint32_t)); // +4 = 27
 
     // write uint32_t time_end_seg:
-    file.write((uint8_t*)&gc_cfg.time_end_seg, sizeof(uint32_t));
+    file.write((uint8_t*)&gc_cfg.time_end_seg, sizeof(uint32_t)); // +4 = 31
 
     // write float vbat:
     float vbat = getVBat();
-    file.write((uint8_t*)&vbat, sizeof(float));
+    file.write((uint8_t*)&vbat, sizeof(float)); // +4 = 35
 
     return true;
   }
@@ -813,11 +860,13 @@ void adc_play_callback() {
 
   if (ADC0_SC1A != adc_config[3]) {
     adc_errors++;
+    adc_play_cnt++;
     return;
   }
 
   if (delta+3 >= gc_cfg.adc_buffer_size) {
     buffer_errors++;
+    adc_play_cnt++;
     return;
   }
 
@@ -836,6 +885,7 @@ boolean gc_start()
   adc_errors = 0; buffer_errors = 0;
   adc_rtc_stop = 0;
   setPowerUp(PGA_MASK); delay(200);
+  cfgGain(gc_cfg.gain);
 
   // configure file
   if (file_cfg()) {
@@ -844,21 +894,25 @@ boolean gc_start()
 
     // write uint32_t rtc_time_sec:
     sd_buffer[sd_head++] = ((uint16_t*)&rtc_time)[0];
-    sd_buffer[sd_head++] = ((uint16_t*)&rtc_time)[1];
+    sd_buffer[sd_head++] = ((uint16_t*)&rtc_time)[1]; // +4 = 39
 
     // write uint32_t adc_play_cnt:
     sd_buffer[sd_head++] = ((uint16_t*)&adc_play_cnt)[0];
-    sd_buffer[sd_head++] = ((uint16_t*)&adc_play_cnt)[1];
+    sd_buffer[sd_head++] = ((uint16_t*)&adc_play_cnt)[1]; // +4 = 43
 
     // configure adc_play
     sd_buffer[sd_head++] = 0;
-    sd_buffer[sd_head++] = 0;
+    sd_buffer[sd_head++] = 0; // +4 = 47
     if (!adc_play.begin(adc_play_callback, gc_cfg.tick_time_useg)) {
       sd_buffer[sd_head-1] = 61153;
       gc_println(PSTR("error:start: adc_play!"));
       setPowerDown(PGA_MASK);
       return false;
     }
+
+    CORE_PIN10_CONFIG &= ~PORT_PCR_DSE;
+    CORE_PIN11_CONFIG &= ~PORT_PCR_DSE;
+    CORE_PIN13_CONFIG &= ~PORT_PCR_DSE;
 
     gcPlayStat |= GC_ST_READING;
     return true;
