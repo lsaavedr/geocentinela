@@ -1,10 +1,10 @@
 void gc_print(const char *log_string);
 void gc_println(const char *log_string);
 //-------------------------------
-gcCFG gc_cfg(PSTR("CNT.CFG"), gc_println);
+gcCFG gc_cfg(PSTR("CNT01.CFG"), gc_println);
 //-------------------------------
 TEENSY3_LP lp = TEENSY3_LP();
-sleep_block_t* lp_cfg = NULL; // sleep configuration
+sleep_block_t lp_cfg; // sleep configuration
 //-------------------------------
 #define GC_ADC_A0 5
 #define GC_ADC_A1 14
@@ -21,9 +21,12 @@ sleep_block_t* lp_cfg = NULL; // sleep configuration
 #define GC_ADC_A12 3
 #define GC_ADC_REFSEL 0 // 0->3.3v(ext), 1->1.2v
 //-------------------------------
-uint16_t* adc_ring_buffer = NULL;
+#define GC_ADC_RING_SIZE 0x1000
+#define GC_ADC_RING_SIZE_BYTES 0x2000
+#define GC_ADC_RING_SIZE_HASH 0xFFF
+DMAMEM volatile uint16_t __attribute__((aligned(GC_ADC_RING_SIZE_BYTES))) adc_ring_buffer[GC_ADC_RING_SIZE];
 
-uint32_t adc_config[8] = {
+volatile uint32_t adc_config[8] = {
   ADC_SC1_ADCH(GC_ADC_A4),
   ADC_SC1_ADCH(GC_ADC_A6),
   ADC_SC1_ADCH(GC_ADC_A9),
@@ -38,7 +41,9 @@ uint32_t adc_config[8] = {
 #define SD_MOSI 11
 SdFat sd;
 SdFile file;
-uint16_t* sd_buffer;
+#define GC_SD_BUFFER_SIZE 0x1000
+#define GC_SD_BUFFER_SIZE_BYTES 0x2000
+uint16_t sd_buffer[GC_SD_BUFFER_SIZE];
 //-------------------------------
 IntervalTimer adc_play;
 //-------------------------------
@@ -401,7 +406,7 @@ void cfgAdc()
 
 void cfgDma()
 {
-  uint32_t mod = 1+log2(gc_cfg.adc_buffer_size);
+  uint32_t mod = 1+log2(GC_ADC_RING_SIZE);
 
   // enable DMA and DMAMUX clock
   SIM_SCGC7 |= SIM_SCGC7_DMA;
@@ -483,27 +488,10 @@ void cfgDma()
 
 boolean rcfgBuff()
 {
-  if (adc_ring_buffer) { free(adc_ring_buffer); adc_ring_buffer = NULL; }
-  if (sd_buffer) { free(sd_buffer); sd_buffer = NULL; }
-  if (lp_cfg) { free(lp_cfg); lp_cfg = NULL; }
+  memset(&lp_cfg, 0, sizeof(sleep_block_t));
+  gcCfgStat |= GC_CFG_RBUFF;
 
-  adc_ring_buffer = (uint16_t*) memalign(gc_cfg.adc_buffer_size_bytes,
-                                         gc_cfg.adc_buffer_size_bytes);
-  sd_buffer = (uint16_t*) calloc(gc_cfg.sd_buffer_size, sizeof(uint16_t));
-  lp_cfg = (sleep_block_t*) calloc(1, sizeof(sleep_block_t));
-
-  if (adc_ring_buffer && sd_buffer && lp_cfg) {
-    memset(adc_ring_buffer, 0, gc_cfg.adc_buffer_size_bytes);
-
-    gcCfgStat |= GC_CFG_RBUFF;
-    return true;
-  }
-
-  if (adc_ring_buffer) { free(adc_ring_buffer); adc_ring_buffer = NULL; }
-  if (sd_buffer) { free(sd_buffer); sd_buffer = NULL; }
-  if (lp_cfg) { free(lp_cfg); lp_cfg = NULL; }
-
-  return false;
+  return true;
 }
 
 void rcfgAdc()
@@ -622,19 +610,19 @@ void callbackhandler() {
 uint32_t deep_sleep()
 {
   // reset lp_cfg
-  memset(lp_cfg, 0, sizeof(sleep_block_t));
+  memset(&lp_cfg, 0, sizeof(sleep_block_t));
 
   // OR together different wake sources
-  lp_cfg->modules = GPIO_WAKE;
+  lp_cfg.modules = GPIO_WAKE;
 
   // GPIO alarm wakeup
-  lp_cfg->gpio_pin = WAKE_USB;
+  lp_cfg.gpio_pin = WAKE_USB;
 
   // user callback function
-  lp_cfg->callback = callbackhandler;
+  lp_cfg.callback = callbackhandler;
 
   // sleep
-  lp.DeepSleep(lp_cfg);
+  lp.DeepSleep(&lp_cfg);
 
   return 0;
 }
@@ -642,26 +630,26 @@ uint32_t deep_sleep()
 uint32_t sleep_chrono()
 {
   // reset lp_cfg
-  memset(lp_cfg, 0, sizeof(sleep_block_t));
+  memset(&lp_cfg, 0, sizeof(sleep_block_t));
 
   // OR together different wake sources
-  lp_cfg->modules = (GPIO_WAKE | RTCA_WAKE);
+  lp_cfg.modules = (GPIO_WAKE | RTCA_WAKE);
 
   // GPIO alarm wakeup
-  lp_cfg->gpio_pin = WAKE_USB;
+  lp_cfg.gpio_pin = WAKE_USB;
 
   // RTC alarm wakeup in seconds:
-  lp_cfg->rtc_alarm = gc_cfg.time_begin_seg;
+  lp_cfg.rtc_alarm = gc_cfg.time_begin_seg;
   uint32_t dseg = gc_cfg.time_end_seg;
 
   // user callback function
-  lp_cfg->callback = callbackhandler;
+  lp_cfg.callback = callbackhandler;
 
   // sleep
-  if (lp_cfg->rtc_alarm > 0) {
-    lp.DeepSleep(lp_cfg);
+  if (lp_cfg.rtc_alarm > 0) {
+    lp.DeepSleep(&lp_cfg);
 
-    if (lp_cfg->wake_source == WAKE_USB) {
+    if (lp_cfg.wake_source == WAKE_USB) {
       return 0;
     } else {
       syncGps();
@@ -674,13 +662,13 @@ uint32_t sleep_chrono()
 uint32_t sleep_daily()
 {
   // reset lp_cfg
-  memset(lp_cfg, 0, sizeof(sleep_block_t));
+  memset(&lp_cfg, 0, sizeof(sleep_block_t));
 
   // OR together different wake sources
-  lp_cfg->modules = (GPIO_WAKE | RTCA_WAKE);
+  lp_cfg.modules = (GPIO_WAKE | RTCA_WAKE);
 
   // GPIO alarm wakeup
-  lp_cfg->gpio_pin = WAKE_USB;
+  lp_cfg.gpio_pin = WAKE_USB;
 
   uint32_t time_n = Teensy3Clock.get() % SEG_A_DAY;
   uint32_t dseg = 0;
@@ -689,34 +677,34 @@ uint32_t sleep_daily()
   if (gc_cfg.time_begin_seg < gc_cfg.time_end_seg) {
     dseg = gc_cfg.time_end_seg - gc_cfg.time_begin_seg;
     if (time_n < gc_cfg.time_begin_seg) {
-      lp_cfg->rtc_alarm = gc_cfg.time_begin_seg - time_n;
+      lp_cfg.rtc_alarm = gc_cfg.time_begin_seg - time_n;
     } else if (time_n > gc_cfg.time_end_seg) {
-      lp_cfg->rtc_alarm = (gc_cfg.time_begin_seg + SEG_A_DAY) - time_n;
+      lp_cfg.rtc_alarm = (gc_cfg.time_begin_seg + SEG_A_DAY) - time_n;
     } else {
-      lp_cfg->rtc_alarm = 0;
+      lp_cfg.rtc_alarm = 0;
       dseg = gc_cfg.time_end_seg - time_n;
     }
   } else {
     if (time_n <= gc_cfg.time_end_seg) {
-      lp_cfg->rtc_alarm = 0;
+      lp_cfg.rtc_alarm = 0;
       dseg = gc_cfg.time_end_seg - time_n;
     } else if (time_n >= gc_cfg.time_begin_seg) {
-      lp_cfg->rtc_alarm = 0;
+      lp_cfg.rtc_alarm = 0;
       dseg = (gc_cfg.time_end_seg + SEG_A_DAY) - time_n;
     } else {
-      lp_cfg->rtc_alarm = gc_cfg.time_begin_seg - time_n;
+      lp_cfg.rtc_alarm = gc_cfg.time_begin_seg - time_n;
       dseg = (SEG_A_DAY - gc_cfg.time_begin_seg) + gc_cfg.time_end_seg;
     }
   }
 
   // user callback function
-  lp_cfg->callback = callbackhandler;
+  lp_cfg.callback = callbackhandler;
 
   // sleep
-  if (lp_cfg->rtc_alarm > 0) {
-    lp.DeepSleep(lp_cfg);
+  if (lp_cfg.rtc_alarm > 0) {
+    lp.DeepSleep(&lp_cfg);
 
-    if (lp_cfg->wake_source == WAKE_USB) {
+    if (lp_cfg.wake_source == WAKE_USB) {
       return 0;
     } else { // GPS rtc sync first!
       // sync RTC with the GPS
@@ -742,14 +730,14 @@ boolean gc_stop()
 
   // save tail
   while (delta > 0) {
-    if (sd_head == gc_cfg.sd_buffer_size) {
-      file.write(sd_buffer, gc_cfg.sd_buffer_size_bytes);
+    if (sd_head == GC_SD_BUFFER_SIZE) {
+      file.write(sd_buffer, GC_SD_BUFFER_SIZE_BYTES);
       sd_head = 0;
     }
 
     sd_buffer[sd_head++] = adc_ring_buffer[tail++];
 
-    tail &= gc_cfg.adc_buffer_hash;
+    tail &= GC_ADC_RING_SIZE_HASH;
     delta--;
   }
   file.write(sd_buffer, sd_head * sizeof(uint16_t));
@@ -864,7 +852,7 @@ void adc_play_callback() {
     return;
   }
 
-  if (delta+3 >= gc_cfg.adc_buffer_size) {
+  if (delta+3 >= GC_ADC_RING_SIZE) {
     buffer_errors++;
     adc_play_cnt++;
     return;

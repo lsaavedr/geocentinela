@@ -18,13 +18,6 @@ public:
   uint32_t time_begin_seg = 5;
   uint32_t time_end_seg = 10;
 
-  uint16_t adc_buffer_size = 4096; // 2048*2
-  uint16_t adc_buffer_size_bytes = adc_buffer_size * sizeof(uint16_t);
-  uint16_t adc_buffer_hash = adc_buffer_size - 1;
-
-  uint16_t sd_buffer_size = 4096; // 4096*2
-  uint16_t sd_buffer_size_bytes = sd_buffer_size * sizeof(uint16_t);
-
   boolean gps = false;
 
   static void gcCmd(uint8_t* cmd, uint8_t n)
@@ -114,19 +107,6 @@ public:
   void set_time_end(uint32_t time_end_seg)
   {
     this->time_end_seg = time_end_seg;
-  }
-
-  void set_sd_buffer_size(uint16_t sd_buffer_size)
-  {
-    this->sd_buffer_size = sd_buffer_size;
-    this->sd_buffer_size_bytes = sd_buffer_size * sizeof(uint16_t);
-  }
-
-  void set_adc_buffer_size(uint16_t adc_buffer_size)
-  {
-    this->adc_buffer_size = adc_buffer_size;
-    this->adc_buffer_hash = adc_buffer_size - 1;
-    this->adc_buffer_size_bytes = adc_buffer_size * sizeof(uint16_t);
   }
 
 private:

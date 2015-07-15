@@ -24,12 +24,6 @@ bool gcCFG::write()
     // write uint32_t time_end_seg:
     file_cfg.write((uint8_t*)&time_end_seg, sizeof(uint32_t));
 
-    // write uint16_t adc_buffer_size:
-    file_cfg.write((uint8_t*)&adc_buffer_size, sizeof(uint16_t));
-
-    // write uint16_t sd_buffer_size:
-    file_cfg.write((uint8_t*)&sd_buffer_size, sizeof(uint16_t));
-
     // write gps:
     file_cfg.write((uint8_t*)&gps, sizeof(boolean));
 
@@ -102,26 +96,6 @@ bool gcCFG::read()
       return false;
     }
 
-    // read uint16_t adc_buffer_size:
-    if (file_cfg.read(&adc_buffer_size, sizeof(uint16_t)) != sizeof(uint16_t)) {
-      log(PSTR("GeoCentinelaCFG: adc_buffer_size"));
-      if (!file_cfg.close()) {
-        log(PSTR("GeoCentinelaCFG: file close error"));
-        log(file_name);
-      }
-      return false;
-    }
-
-    // read uint16_t sd_buffer_size:
-    if (file_cfg.read(&sd_buffer_size, sizeof(uint16_t)) != sizeof(uint16_t)) {
-      log(PSTR("GeoCentinelaCFG: sd_buffer_size"));
-      if (!file_cfg.close()) {
-        log(PSTR("GeoCentinelaCFG: file close error"));
-        log(file_name);
-      }
-      return false;
-    }
-
     // read gps:
     if (file_cfg.read(&gps, sizeof(boolean)) != sizeof(boolean)) {
       log(PSTR("GeoCentinelaCFG: gps"));
@@ -157,8 +131,6 @@ void gcCFG::print()
   Serial.print(PSTR("time_type:")); Serial.println(time_type);
   Serial.print(PSTR("time_begin_seg:")); Serial.println(time_begin_seg);
   Serial.print(PSTR("time_end_seg:")); Serial.println(time_end_seg);
-  Serial.print(PSTR("adc_buffer_size:")); Serial.println(adc_buffer_size);
-  Serial.print(PSTR("sd_buffer_size:")); Serial.println(sd_buffer_size);
   Serial.print(PSTR("gps:")); Serial.println(gps);
   Serial.print(PSTR("F_BUS:")); Serial.println(F_BUS);
   Serial.println();

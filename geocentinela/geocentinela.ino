@@ -8,9 +8,6 @@
 
 #include <LowPower_Teensy3.h>
 
-#include <malloc.h> // needed to memalign and calloc
-#include <cmath>    // needed to log2
-
 #include "gcCFG.h"
 #include "gcAll.h"
 
@@ -19,24 +16,18 @@ void start_reading()
   noInterrupts();
   if (LOW == digitalRead(PIN_USB)) {
     attachInterrupt(PIN_USB, stop_reading, RISING);
-    gcPlayStat = 0;
-    gcPlayStat |= GC_ST_PLAY;
+    gcPlayStat = GC_ST_PLAY;
   }
   interrupts();
-
-  CORE_PIN10_CONFIG &= ~PORT_PCR_DSE;
-  CORE_PIN11_CONFIG &= ~PORT_PCR_DSE;
-  CORE_PIN13_CONFIG &= ~PORT_PCR_DSE;
 }
 
 void stop_reading()
 {
-  noInterrupts();
   setPowerDown(PGA_MASK);
   if (adc_rtc_stop == 0) adc_rtc_stop = Teensy3Clock.get();
 
-  gcPlayStat = 0;
-  gcPlayStat |= GC_ST_STOP;
+  noInterrupts();
+  gcPlayStat = GC_ST_STOP;
   interrupts();
 
   if (HIGH == digitalRead(PIN_USB)) {
@@ -120,14 +111,14 @@ void loop()
 
     while (gcPlayStat & GC_ST_READING) {
       while (delta > 3) {
-        if (sd_head == gc_cfg.sd_buffer_size) {
-          file.write(sd_buffer, gc_cfg.sd_buffer_size_bytes);
+        if (sd_head == GC_SD_BUFFER_SIZE) {
+          file.write(sd_buffer, GC_SD_BUFFER_SIZE_BYTES);
           sd_head = 0;
         }
 
         sd_buffer[sd_head++] = adc_ring_buffer[tail++];
 
-        tail &= gc_cfg.adc_buffer_hash;
+        tail &= GC_ADC_RING_SIZE_HASH;
 
         noInterrupts();
         delta--;
@@ -280,10 +271,6 @@ void loop()
                   ((uint8_t*)&gc_cfg.time_end_seg)[1],
                   ((uint8_t*)&gc_cfg.time_end_seg)[2],
                   ((uint8_t*)&gc_cfg.time_end_seg)[3],
-                  ((uint8_t*)&gc_cfg.adc_buffer_size)[0],
-                  ((uint8_t*)&gc_cfg.adc_buffer_size)[1],
-                  ((uint8_t*)&gc_cfg.sd_buffer_size)[0],
-                  ((uint8_t*)&gc_cfg.sd_buffer_size)[1],
                   (uint8_t)gc_cfg.gps,
                 };
                 gc_cmd(settings, 21);
@@ -347,24 +334,6 @@ void loop()
                 gc_cfg.set_time_begin(u);
                 gc_cfg.set_time_end(v);
                 write_cfg = true;
-              } break;
-              case 'a': {
-                if (length > 2) {
-                  uint16_t adc_buffer_size;
-                  ((uint8_t*)&adc_buffer_size)[0] = Serial.read();
-                  ((uint8_t*)&adc_buffer_size)[1] = Serial.read();
-                  gc_cfg.set_adc_buffer_size(adc_buffer_size);
-                  write_cfg = true;
-                }
-              } break;
-              case 'b': {
-                if (length > 2) {
-                  uint16_t sd_buffer_size;
-                  ((uint8_t*)&sd_buffer_size)[0] = Serial.read();
-                  ((uint8_t*)&sd_buffer_size)[1] = Serial.read();
-                  gc_cfg.set_sd_buffer_size(sd_buffer_size);
-                  write_cfg = true;
-                }
               } break;
               case 'r': {
                 time_t pctime = (time_t)(Serial.parseInt());
