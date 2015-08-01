@@ -1,6 +1,7 @@
 void gc_print(const char *log_string);
 void gc_println(const char *log_string);
 //-------------------------------
+#include "gcCFG.h"
 gcCFG gc_cfg(PSTR("CNT01.CFG"), gc_println);
 //-------------------------------
 TEENSY3_LP lp = TEENSY3_LP();
@@ -172,23 +173,23 @@ void cfgGps()
 {
   GPS.begin(4800);
 
-  GPS.println(PSTR("$PSRF103,0,0,0,1*24"));
-  GPS.println(PSTR("$PSRF103,1,0,0,1*25"));
-  GPS.println(PSTR("$PSRF103,2,0,0,1*26"));
-  GPS.println(PSTR("$PSRF103,3,0,0,1*27"));
-  GPS.println(PSTR("$PSRF103,4,0,0,1*20"));
-  GPS.println(PSTR("$PSRF103,5,0,0,1*21"));
-  GPS.println(PSTR("$PSRF103,6,0,0,1*22"));
-  GPS.println(PSTR("$PSRF103,8,0,0,1*2C"));
+  GPS.println(F("$PSRF103,0,0,0,1*24"));
+  GPS.println(F("$PSRF103,1,0,0,1*25"));
+  GPS.println(F("$PSRF103,2,0,0,1*26"));
+  GPS.println(F("$PSRF103,3,0,0,1*27"));
+  GPS.println(F("$PSRF103,4,0,0,1*20"));
+  GPS.println(F("$PSRF103,5,0,0,1*21"));
+  GPS.println(F("$PSRF103,6,0,0,1*22"));
+  GPS.println(F("$PSRF103,8,0,0,1*2C"));
 
-  //GPS.println(PSTR("$PSRF103,0,0,1,1*25"));
-  //GPS.println(PSTR("$PSRF103,1,0,1,1*26"));
-  //GPS.println(PSTR("$PSRF103,2,0,1,1*27"));
-  //GPS.println(PSTR("$PSRF103,3,0,1,1*28"));
-  GPS.println(PSTR("$PSRF103,4,0,1,1*21"));
-  //GPS.println(PSTR("$PSRF103,5,0,1,1*22"));
-  //GPS.println(PSTR("$PSRF103,6,0,1,1*23"));
-  //GPS.println(PSTR("$PSRF103,8,0,1,1*2D"));
+  //GPS.println(F("$PSRF103,0,0,1,1*25"));
+  //GPS.println(F("$PSRF103,1,0,1,1*26"));
+  //GPS.println(F("$PSRF103,2,0,1,1*27"));
+  //GPS.println(F("$PSRF103,3,0,1,1*28"));
+  GPS.println(F("$PSRF103,4,0,1,1*21"));
+  //GPS.println(F("$PSRF103,5,0,1,1*22"));
+  //GPS.println(F("$PSRF103,6,0,1,1*23"));
+  //GPS.println(F("$PSRF103,8,0,1,1*2D"));
 }
 
 boolean gps2rtcSync()
@@ -939,9 +940,9 @@ void gc_println(const char *log_string)
 void printDigits(int digits, boolean first)
 {
   // utility function for digital clock display: prints preceding colon and leading 0
-  if (!first) Serial.print(":");
+  if (!first) Serial.print(F(":"));
   if(digits < 10)
-    Serial.print('0');
+    Serial.print(F("0"));
   Serial.print(digits);
 }
 
@@ -951,12 +952,12 @@ void digitalClockDisplay()
   printDigits(hour(), true);
   printDigits(minute(), false);
   printDigits(second(), false);
-  Serial.print(" ");
+  Serial.print(F(" "));
   Serial.print(day());
-  Serial.print("/");
+  Serial.print(F("/"));
   Serial.print(month());
-  Serial.print("/");
+  Serial.print(F("/"));
   Serial.print(year());
-  Serial.print(" : ");
+  Serial.print(F(" : "));
   Serial.println(Teensy3Clock.get() % SEG_A_DAY);
 }

@@ -3,6 +3,8 @@ package cl.timining.geocentinela;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.charset.Charset;
+import java.util.TimeZone;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -196,6 +198,16 @@ public class MainActivityGeoCentinela extends Activity
     		Intent settings = new Intent(this, SettingsActivity.class);
         	startActivityForResult(settings, 0);
             return true;
+        case (R.id.action_timesync):
+        	long timestamp_old = (System.currentTimeMillis()+TimeZone.getDefault().getRawOffset())/1000;
+        	long timestamp = (System.currentTimeMillis()+TimeZone.getDefault().getRawOffset())/1000;
+        	String cmdString = "sr"+timestamp;
+        	while (timestamp_old == timestamp) {
+        		timestamp = (System.currentTimeMillis()+TimeZone.getDefault().getRawOffset())/1000;
+        		cmdString = "sr"+timestamp;
+        	}
+        	sendCmd(cmdString.getBytes(Charset.forName("UTF-8")));
+            return true;
         }
         return super.onOptionsItemSelected(item);
     }
@@ -306,7 +318,7 @@ public class MainActivityGeoCentinela extends Activity
 			if (mc!=null) {
 				String filelist = new String (data);
 				filelist = filelist.replace("\r", "");
-				filelist = filelist.replace("CNT.CFG\n", ""); // remove configuration file!
+				filelist = filelist.replaceAll("CNT([0-9]*).CFG\n", ""); // remove configuration file!
 				if (filelist.length() > 0) {
 					String[] files = filelist.split("\n");
 					mc.dbHelper.addFiles(files);

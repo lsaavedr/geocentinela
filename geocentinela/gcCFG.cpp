@@ -124,15 +124,15 @@ bool gcCFG::read()
 
 void gcCFG::print()
 {
-  Serial.print(PSTR("file_name:")); Serial.println(file_name);
-  Serial.print(PSTR("gain:")); Serial.println(gain);
-  Serial.print(PSTR("average:")); Serial.println(average);
-  Serial.print(PSTR("tick_time_useg:")); Serial.println(tick_time_useg);
-  Serial.print(PSTR("time_type:")); Serial.println(time_type);
-  Serial.print(PSTR("time_begin_seg:")); Serial.println(time_begin_seg);
-  Serial.print(PSTR("time_end_seg:")); Serial.println(time_end_seg);
-  Serial.print(PSTR("gps:")); Serial.println(gps);
-  Serial.print(PSTR("F_BUS:")); Serial.println(F_BUS);
+  Serial.print(F("file_name:")); Serial.println(file_name);
+  Serial.print(F("gain:")); Serial.println(gain);
+  Serial.print(F("average:")); Serial.println(average);
+  Serial.print(F("tick_time_useg:")); Serial.println(tick_time_useg);
+  Serial.print(F("time_type:")); Serial.println(time_type);
+  Serial.print(F("time_begin_seg:")); Serial.println(time_begin_seg);
+  Serial.print(F("time_end_seg:")); Serial.println(time_end_seg);
+  Serial.print(F("gps:")); Serial.println(gps);
+  Serial.print(F("F_BUS:")); Serial.println(F_BUS);
   Serial.println();
 }
 

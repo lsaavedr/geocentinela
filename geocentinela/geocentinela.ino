@@ -1,14 +1,14 @@
+#include <XBeeNG.h>
+
 #include <IntervalTimer.h>
 
 #include <TinyGPS.h>
 #include <Time.h>
 
-#include <SPI.h>
 #include <SdFat.h>
 
 #include <LowPower_Teensy3.h>
 
-#include "gcCFG.h"
 #include "gcAll.h"
 
 void start_reading()
@@ -338,7 +338,6 @@ void loop()
               case 'r': {
                 time_t pctime = (time_t)(Serial.parseInt());
                 if (pctime != 0) {
-                  delay(10);
                   Teensy3Clock.set(pctime); // set the RTC
                   setTime(pctime);
                 }
@@ -364,7 +363,7 @@ void loop()
                 float vbat = getVBat();
                 gc_println(PSTR("Battery:"));
                 Serial.print(vbat);
-                Serial.println("V");
+                Serial.println(F("V"));
               } break;
               default: {
                 gc_println(PSTR("bad set!"));
@@ -383,11 +382,11 @@ void loop()
                 gc_println(PSTR("HID:"));
                 Serial.println();
                 Serial.print(SIM_UIDH);
-                Serial.print(".");
+                Serial.print(F("."));
                 Serial.print(SIM_UIDMH);
-                Serial.print(".");
+                Serial.print(F("."));
                 Serial.print(SIM_UIDML);
-                Serial.print(".");
+                Serial.print(F("."));
                 Serial.println(SIM_UIDL);
               } break;
               case 'p': {
