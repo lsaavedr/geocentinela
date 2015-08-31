@@ -612,7 +612,7 @@ bool gc_stop()
   // save adc_rtc_stop
   file.write((uint8_t*)&adc_rtc_stop, sizeof(uint32_t));
 
-  if (file.writeError) {
+  if (file.getWriteError()) {
     gc_println(PSTR("error:stop: write file!"));
     return false;
   }
@@ -747,7 +747,7 @@ void loop()
       tail &= gc_cfg.adc_buffer_hash;
     }
 
-    if (file.writeError) {
+    if (file.getWriteError()) {
       gc_println(PSTR("error:loop: file write!"));
 
       if (adc_rtc_stop == 0) adc_rtc_stop = Teensy3Clock.get();
