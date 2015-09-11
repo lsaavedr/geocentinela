@@ -279,6 +279,12 @@ void loop()
                 gc_println(PSTR("Settings:"));
                 gc_cfg.print();
                 digitalClockDisplay();
+                Serial.print(F("Battery: "));
+                Serial.print(getVBat());
+                Serial.println(F("V"));
+                Serial.print(F("Temp: "));
+                Serial.print(getTemp());
+                Serial.println(F("C"));
               } break;
               case 'm': {
                 if (length > 1) {

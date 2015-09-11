@@ -20,6 +20,7 @@ sleep_block_t lp_cfg; // sleep configuration
 #define GC_ADC_A10 0
 #define GC_ADC_A11 19
 #define GC_ADC_A12 3
+#define GC_ADC_TEMP 26
 #define GC_ADC_REFSEL 0 // 0->3.3v(ext), 1->1.2v
 //-------------------------------
 #define GC_ADC_RING_SIZE 0x1000
@@ -27,7 +28,7 @@ sleep_block_t lp_cfg; // sleep configuration
 #define GC_ADC_RING_SIZE_HASH 0xFFF
 DMAMEM volatile uint16_t __attribute__((aligned(GC_ADC_RING_SIZE_BYTES))) adc_ring_buffer[GC_ADC_RING_SIZE];
 
-volatile uint32_t adc_config[8] = {
+volatile uint32_t adc_config[10] = {
   ADC_SC1_ADCH(GC_ADC_A4),
   ADC_SC1_ADCH(GC_ADC_A6),
   ADC_SC1_ADCH(GC_ADC_A9),
@@ -35,6 +36,8 @@ volatile uint32_t adc_config[8] = {
   ADC_SC1_ADCH(GC_ADC_A10), // read battery state
   ADC_SC1_ADCH(31), // stop=0b11111=31
   ADC_SC1_ADCH(GC_ADC_A11), // read zero vref
+  ADC_SC1_ADCH(31), // stop=0b11111=31
+  ADC_SC1_ADCH(GC_ADC_TEMP), // read temperature
   ADC_SC1_ADCH(31), // stop=0b11111=31
 };
 //-------------------------------
@@ -73,7 +76,7 @@ volatile uint8_t gcCfgStat = 0;// GeoCentinela Config Status
 #define GC_CFG_RDMA   0x10 // Reconfigure DMA
 #define GC_CFG_RCFG   0x18 // Reconfiguration OK
 //-------------------------------
-#define FILE_FORMAT 0x03
+#define FILE_FORMAT 0x04
 #define FILENAME_MAX_LENGH 11
 #define PIN_USB 30
 #define WAKE_USB PIN_30
@@ -519,6 +522,90 @@ void rcfg()
   cfgDma();
 }
 //----------------------------------------------------------------------
+float getTemp()
+{
+  // vref:
+  VREF_TRM = 0
+    | VREF_TRM_CHOPEN
+    | VREF_TRM_TRIM(0x20);
+
+  VREF_SC = 0
+    | VREF_SC_VREFEN     // Internal Voltage Reference enable
+    | VREF_SC_REGEN      // Regulator enable
+    | VREF_SC_ICOMPEN    // Second order curvature compensation enable
+    | VREF_SC_MODE_LV(1) // power buffer mode: 0->Bandgap on only, 1->High, 2->Low
+  ;
+
+  // general configuration
+  ADC0_CFG1 = 0
+    //| ADC_CFG1_ADLPC     // lower power: off, on
+    //| ADC_CFG1_ADIV(1)   // clock divide: 1, 2, 4, 8
+    | ADC_CFG1_ADLSMP    // sample time: short, long
+    | ADC_CFG1_MODE(3)   // conversion mode: 8, 12, 10, 16
+    //| ADC_CFG1_ADICLK(1) // input clock: bus, bus/2, alternate, asynchronous
+    | ADC_CFG1_16BIT       // set adc_clock, i.e: ADC_CFG1_ADIV and ADC_CFG1_ADICLK
+  ;
+
+  ADC0_CFG2 = 0
+    | ADC_CFG2_MUXSEL    // adc mux (see pag. 96): ADxxa, ADxxb
+    //| ADC_CG2_ADACKEN    // asynchronous clock output: disable, enable
+    //| ADC_CFG2_ADHSC     // high speed configuration: normal, high
+    | ADC_CFG2_ADLSTS(0) // long sample time: 20ext, 12ext, 6ext, 2ext
+  ;
+
+  // control
+  ADC0_SC2 = 0
+    //| ADC_SC2_ADTRG     // trigger select: software, hardware
+    //| ADC_SC2_ACFE      // compare function: disable, enable
+    //| ADC_SC2_ACFGT     // compare function greater than: disable, enable
+    //| ADC_SC2_ACREN     // compare function range: disable, enable
+    //| ADC_SC2_DMAEN     // DMA enable
+    | ADC_SC2_REFSEL(1) // 0->3.3v, 1->1.2v
+  ;
+
+  ADC0_SC3 = 0
+    //| ADC_SC3_ADCO    // continuous conversion: disable, enable
+    | ADC_SC3_AVGE    // enable hardware average
+    | ADC_SC3_AVGS(3) // average select: 0->4, 1->8, 2->16, 3->32
+  ;
+
+  // calibration
+  ADC0_SC3 |= ADC_SC3_CAL; // begin cal
+
+  uint16_t cal_sum;
+  while (ADC0_SC3 & ADC_SC3_CAL);
+
+  cal_sum = (ADC0_CLPS + ADC0_CLP4 + ADC0_CLP3 + ADC0_CLP2 + ADC0_CLP1 + ADC0_CLP0)/2;
+  ADC0_PG = cal_sum | 0x8000;
+
+  cal_sum = (ADC0_CLMS + ADC0_CLM4 + ADC0_CLM3 + ADC0_CLM2 + ADC0_CLM1 + ADC0_CLM0)/2;
+  ADC0_MG = cal_sum | 0x8000;
+
+  // Stop conversion
+  ADC0_SC1A = ADC_SC1_ADCH(0b11111);
+
+  uint32_t bvalue = 0;
+  uint16_t n = 100;
+  for(uint16_t i = 0; i < n; i++) {
+    ADC0_SC1A = adc_config[8];
+    while(!(ADC0_SC1A & ADC_SC1_COCO));
+    bvalue += ADC0_RA;
+  }
+  bvalue /= n;
+
+  // configure adc
+  cfgAdc();
+
+  // configure DMA
+  cfgDma();
+
+  // reconfigure
+  rcfg();
+
+  float mV_value = 1195.0*bvalue/65536.0;
+  return  25-(mV_value-719)/1.715;// Temp = 25 - ((V_temp - V_temp25)/m)
+}
+//----------------------------------------------------------------------
 float getVBat()
 {
   // vref:
@@ -599,8 +686,8 @@ float getVBat()
   // reconfigure
   rcfg();
 
-  float value = 1.195*bvalue/65536.0;
-  return 21*value;
+  float mV_value = 1.195*bvalue/65536.0;
+  return 21*mV_value;
 }
 //----------------------------------------------------------------------
 // User callback handler
@@ -758,6 +845,10 @@ boolean gc_stop()
   float vbat = getVBat();
   file.write((uint8_t*)&vbat, sizeof(float)); // +4 = 20
 
+  // write float temp:
+  float temp = getTemp();
+  file.write((uint8_t*)&temp, sizeof(float)); // +4 = 24
+
   // file timestamp
   file.timestamp(T_WRITE, year(), month(), day(), hour(), minute(), second());
   file.timestamp(T_ACCESS, year(), month(), day(), hour(), minute(), second());
@@ -836,6 +927,10 @@ boolean file_cfg()
     // write float vbat:
     float vbat = getVBat();
     file.write((uint8_t*)&vbat, sizeof(float)); // +4 = 35
+
+    // write float temp:
+    float temp = getTemp();
+    file.write((uint8_t*)&temp, sizeof(float)); // +4 = 39
 
     return true;
   }
