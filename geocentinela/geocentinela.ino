@@ -23,9 +23,6 @@ void start_reading()
 
 void stop_reading()
 {
-  setPowerDown(PGA_MASK);
-  if (adc_rtc_stop == 0) adc_rtc_stop = Teensy3Clock.get();
-
   noInterrupts();
   gcPlayStat = GC_ST_STOP;
   interrupts();
@@ -38,15 +35,27 @@ void stop_reading()
 
 void setup()
 {
-  // configure POW
-  cfgPow();
+  // se configura el RTC
+  cfgRTC();
 
-  // digital power up
-  setPowerUp(SDX_MASK); delay(200);
+  // se configura el PGA
+  cfgPGA();
+
+  // se configura la SD y el XBEE
+  cfgSDX();
+
+  // se configura el GPS
+  cfgGPS();
+
+  // configure ADC
+  cfgADC();
+
+  // configure DMA
+  cfgDMA();
 
   // USB wakeup
   pinMode(PIN_USB, INPUT);
-  *portConfigRegister(PIN_USB) = PORT_PCR_MUX(1) | PORT_PCR_PE;
+  *portConfigRegister(PIN_USB) = PORT_PCR_MUX(1) | PORT_PCR_PE; // INPUT_PULLDOWN
   delay(100);
 
   if (HIGH == digitalRead(PIN_USB)) {
@@ -55,41 +64,11 @@ void setup()
   } else {
     start_reading();
   }
-
-  // read configuration from sdcard
-  while(!gc_cfg.read()) {
-    while(!gc_cfg.write()) {
-      gc_println(PSTR("error: cfg/rw!"));
-      delay(LOG_TIMEOUT);
-    }
-  }
-
-  // checking RTC
-  while (timeStatus() != timeSet) {
-    gc_println(PSTR("error: rtc!"));
-    delay(LOG_TIMEOUT);
-    setSyncProvider(getTeensy3Time);
-  }
-
-  // configure ADC
-  cfgAdc();
-
-  // configure DMA
-  cfgDma();
-
-  // reconfigure (buffer?)
-  rcfg();
-
-  // gain configuration
-  cfgGain(gc_cfg.gain);
-
-  // sync gps
-  syncGps();
 }
 
 void loop()
 {
-  if (LOW == digitalRead(PIN_USB)) {
+  while (LOW == digitalRead(PIN_USB)) {
     if (gcPlayStat & GC_ST_PLAY) {
       gcPlayStat &= ~GC_ST_PLAY;
 
@@ -102,7 +81,7 @@ void loop()
         } break;
       }
 
-      if (adc_play_cnt != 0 && gc_start()) {
+      if (adc_play_cnt != 0 && gcStart()) {
         gc_println(PSTR("Started!"));
       } else {
         stop_reading();
@@ -132,7 +111,7 @@ void loop()
     }
 
     if (gcPlayStat & GC_ST_STOP) {
-      if (gc_stop()) {
+      if (gcStop()) {
         gc_println(PSTR("Stopped!"));
       } else {
         gc_println(PSTR("Stopped error!"));
@@ -143,29 +122,31 @@ void loop()
 
       switch (gc_cfg.time_type) {
         case 0: {
-          //gcPlayStat |= GC_ST_PLAY;
+          gcPlayStat &= ~GC_ST_PLAY;
+          attachInterrupt(PIN_USB, start_reading, FALLING);
+          deep_sleep();
+          gcPlayStat |= GC_ST_CONFIG;
         } break;
         case 1: {
           gcPlayStat |= GC_ST_PLAY;
         } break;
       }
-
-      delay(100);
-      if (HIGH == digitalRead(PIN_USB)) {
-        gcPlayStat &= ~GC_ST_PLAY;
-      }
     }
-  } else {
-    uint8_t cmd = 0;
-    uint32_t length = 0;
+  }
 
-    if ((boolean)Serial.available()) {
+  uint8_t cmd;
+  uint32_t lcmd;
+  while (HIGH == digitalRead(PIN_USB)) { // comands:
+    cmd = 0;
+    lcmd = 0;
+
+    if (Serial.available()) {
       cmd = Serial.read();
-      length = (uint32_t)Serial.available();
+      lcmd = (uint32_t)Serial.available();
     }
 
     if (cmd > 0) {
-      uint8_t message[FILENAME_MAX_LENGH+1];
+      uint8_t* message = (uint8_t*)sd_buffer;
       SdFile fileData;
 
       bool write_cfg = false;
@@ -177,57 +158,58 @@ void loop()
         case 'j': {
           uint32_t tj = (uint32_t)Serial.parseInt();
           gc_cfg.set_time_begin(tj % SEG_A_DAY);
-
           write_cfg = true;
         } break;
         case 'k': {
           uint32_t tk = (uint32_t)Serial.parseInt() % SEG_A_DAY;
           gc_cfg.set_time_end(tk % SEG_A_DAY);
-
           write_cfg = true;
         } break;
         case 'l': { // ls command
-          uint8_t head[1] = { 
-            'l'           };
+          uint8_t head[1] = { 'l' };
           gc_cmd(head, 1);
 
+          setPowerUp(SD_MASK);
           sd.ls(LS_R);
+          setPowerDown(SD_MASK);
+
           gc_println(PSTR("list with cmd!"));
         } break;
         case 'g': { // get a file
-          for (cmd = 0; cmd <= FILENAME_MAX_LENGH && cmd < length; cmd++)
+          for (cmd = 0; cmd <= FILENAME_MAX_LENGH && cmd < lcmd; cmd++)
             message[cmd] = Serial.read();
           message[cmd] = '\0';
 
           if (cmd > 0) {
+            setPowerUp(SD_MASK);
             if (!fileData.open((char*)message, O_READ)) {
-              gc_println(PSTR("error:loop:conf:g: open file data!"));
+              gc_println(PSTR("error:api:g: open file data!"));
             } else {
-              uint8_t head[2] = { 
-                'f', cmd               };
+              uint8_t head[2] = { 'f', cmd };
               gc_cmd(head, 2);
-
               Serial.write(message, cmd);
-              int16_t data;
-              while ((data = fileData.read()) >= 0) Serial.write((uint8_t)data);
 
-              uint8_t eof_cmd[2] = { 
-                'g', cmd               };
+              uint16_t n;
+              while ((n = fileData.read(message, GC_SD_BUFFER_SIZE_BYTES)) > 0)
+                Serial.write(message, n);
+
+              uint8_t eof_cmd[2] = { 'g', cmd };
               gc_cmd(eof_cmd, 2);
-
               gc_println(PSTR("Getting file with cmd!"));
             }
+            setPowerDown(SD_MASK);
             gc_println((char*)message);
           } else {
             gc_println(PSTR("error:loop:conf:g: empty filename!"));
           }
         } break;
         case 'r': { // remove file
-          for (cmd = 0; cmd <= FILENAME_MAX_LENGH && cmd < length; cmd++)
+          for (cmd = 0; cmd <= FILENAME_MAX_LENGH && cmd < lcmd; cmd++)
             message[cmd] = Serial.read();
           message[cmd] = '\0';
 
           if (cmd > 0) {
+            setPowerUp(SD_MASK);
             if (!fileData.open((char*)message, O_WRITE)) {
               gc_println(PSTR("error:loop:conf:r: open file data!"));
             } else {
@@ -237,19 +219,20 @@ void loop()
                 gc_println(PSTR("Remove file with cmd!"));
               }
             }
+            setPowerDown(SD_MASK);
             gc_print((char*)message);
           }
         } break;
         case 's': {
-          if (length > 0) {
+          if (lcmd > 0) {
             cmd = Serial.read();
 
             switch (cmd) {
               case 'o': {
-                if (length > 1) {
+                if (lcmd > 1) {
                   cmd = Serial.read();
                   gc_cfg.set_gain(cmd);
-                  cfgGain(cmd);
+                  setPGA(cmd);
 
                   write_cfg = true;
                 }
@@ -287,14 +270,14 @@ void loop()
                 Serial.println(F("C"));
               } break;
               case 'm': {
-                if (length > 1) {
+                if (lcmd > 1) {
                   cmd = Serial.read();
                   gc_cfg.set_average(cmd);
                   write_cfg = true;
                 }
               } break;
               case 's': {
-                if (length > 4) {
+                if (lcmd > 4) {
                   uint32_t tick_time_useg;
                   ((uint8_t*)&tick_time_useg)[0] = Serial.read();
                   ((uint8_t*)&tick_time_useg)[1] = Serial.read();
@@ -305,14 +288,14 @@ void loop()
                 }
               } break;
               case 't': {
-                if (length > 1) {
+                if (lcmd > 1) {
                   cmd = Serial.read();
                   gc_cfg.set_time_type(cmd);
                   write_cfg = true;
                 }
               } break;
               case 'u': {
-                if (length > 4) {
+                if (lcmd > 4) {
                   uint32_t time_begin_seg;
                   ((uint8_t*)&time_begin_seg)[0] = Serial.read();
                   ((uint8_t*)&time_begin_seg)[1] = Serial.read();
@@ -323,7 +306,7 @@ void loop()
                 }
               } break;
               case 'v': {
-                if (length > 4) {
+                if (lcmd > 4) {
                   uint32_t time_end_seg;
                   ((uint8_t*)&time_end_seg)[0] = Serial.read();
                   ((uint8_t*)&time_end_seg)[1] = Serial.read();
@@ -337,6 +320,7 @@ void loop()
                 uint32_t z = Teensy3Clock.get();
                 uint32_t u = (z+60*10) % SEG_A_DAY;
                 uint32_t v = (z+60*20) % SEG_A_DAY;
+                gc_cfg.set_time_type(1);
                 gc_cfg.set_time_begin(u);
                 gc_cfg.set_time_end(v);
                 write_cfg = true;
@@ -349,7 +333,7 @@ void loop()
                 }
               } break;
               case 'w': {
-                if (length > 1) {
+                if (lcmd > 1) {
                   cmd = (uint8_t)Serial.read();
                   if ((cmd & POWER_UP_MASK) > 0) setPowerUp(cmd);
                   else setPowerDown(cmd);
@@ -359,7 +343,7 @@ void loop()
                 syncGps();
               } break;
               case 'x': {
-                if (length > 1) {
+                if (lcmd > 1) {
                   cmd = Serial.read();
                   gc_cfg.set_gps(cmd);
                   write_cfg = true;
@@ -380,13 +364,12 @@ void loop()
           }
         } break;
         case 'i': {
-          if (length > 0) {
+          if (lcmd > 0) {
             cmd = Serial.read();
 
             switch (cmd) {
               case 't': {
-                gc_println(PSTR("HID:"));
-                Serial.println();
+                gc_print(PSTR("HID:"));
                 Serial.print(SIM_UIDH);
                 Serial.print(F("."));
                 Serial.print(SIM_UIDMH);
@@ -422,22 +405,39 @@ void loop()
             }
           }
         } break;
+        case 'x': {
+          if (xbeeBD == 0) break;
+
+          setPowerUp(XBEE_MASK);
+          while (true) {
+            while (Serial.available()) {
+              cmd = Serial.read();
+              if (cmd == 'x') goto xout;
+              XBEE_IO.write(cmd);
+            }
+            while (XBEE_IO.available()) {
+              cmd = XBEE_IO.read();
+              Serial.write(cmd);
+            }
+          }
+xout:
+          setPowerDown(XBEE_MASK);
+        } break;
         default: {
           gc_println(PSTR("bad cmd!"));
         } break;
       }
 
       if (write_cfg) {
+        setPowerUp(SD_MASK);
         gc_cfg.write();
+        setPowerDown(SD_MASK);
 
         // configure adc
-        cfgAdc();
+        cfgADC();
 
         // configure DMA
-        cfgDma();
-
-        // reconfigure
-        rcfg();
+        cfgDMA();
 
         gc_cfg.print();
         digitalClockDisplay();
