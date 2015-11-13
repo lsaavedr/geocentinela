@@ -8,10 +8,15 @@
 
 #define MIN_TICK_TIME_USEG 100
 
+#define MAX_TRIGGER_LEVEL 0x7FFF // 1.25v
+#define MAX_TRIGGER_TIME_SEG 0x3C // 60seg
+
 class gcCFG {
 public:
+  float sensitivity = 1.0; // V/mm/s
+
   uint8_t gain = 0;              //  0->1, 1->2, 2->4, 3->8, 4->16, 5->32, 6->6, 7->16
-  uint8_t average = 2;           //  0->4, 1->8, 2->16, 3->32
+  uint8_t average = 3;           //  0->4, 1->8, 2->16, 3->32
   uint32_t tick_time_useg = 250; // 4ksps
 
   uint8_t time_type = 0; // testing
@@ -19,6 +24,9 @@ public:
   uint32_t time_end_seg = 10;
 
   boolean gps = false;
+
+  uint16_t trigger_level = 0; // 100%
+  uint32_t trigger_time_number = 0; // 0 segundos, 4000 == 1 segundo
 
   static void gcCmd(uint8_t* cmd, uint8_t n)
   {
@@ -63,6 +71,13 @@ public:
   bool read();
   void print();
 
+  void set_sensitivity(float sensitivity)
+  {
+    if (sensitivity <= 0) return;
+
+    this->sensitivity = sensitivity;
+  }
+
   void set_gain(uint8_t gain)
   {
     if (gain < 8) this->gain = gain;
@@ -91,7 +106,12 @@ public:
 
   void set_tick_time_useg(uint16_t tick_time_useg)
   {
-    if (tick_time_useg >= MIN_TICK_TIME_USEG) this->tick_time_useg = tick_time_useg;
+    if (tick_time_useg >= MIN_TICK_TIME_USEG) {
+      this->trigger_time_number *= this->tick_time_useg;
+      this->trigger_time_number /= tick_time_useg;
+
+      this->tick_time_useg = tick_time_useg;
+    }
   }
 
   void set_time_type(uint8_t time_type)
@@ -109,6 +129,22 @@ public:
     this->time_end_seg = time_end_seg;
   }
 
+  void set_trigger_level(uint16_t trigger_level)
+  {
+    if (trigger_level <= MAX_TRIGGER_LEVEL)
+      this->trigger_level = trigger_level;
+    else
+      this->trigger_level = MAX_TRIGGER_LEVEL;
+  }
+
+  void set_trigger_time_seg(uint32_t trigger_time_seg)
+  {
+    if (trigger_time_seg <= 0) trigger_time_seg = 0;
+    if (trigger_time_seg > MAX_TRIGGER_TIME_SEG) trigger_time_seg = MAX_TRIGGER_TIME_SEG;
+
+    this->trigger_time_number = (trigger_time_seg*1000000)/tick_time_useg;
+  }
+
 private:
   SdFile file_cfg;
   char file_name[FILE_NAME_SIZE];
@@ -117,4 +153,3 @@ private:
 };
 
 #endif // GC_CFG_H
-

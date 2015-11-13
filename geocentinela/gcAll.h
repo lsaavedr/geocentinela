@@ -2,43 +2,60 @@ void gc_print(const char *log_string);
 void gc_println(const char *log_string);
 //-------------------------------
 #include "gcCFG.h"
-gcCFG gc_cfg(PSTR("CNT01.CFG"), gc_println);
+gcCFG gc_cfg(PSTR("GC03.CFG"), gc_println);
 //-------------------------------
 TEENSY3_LP lp = TEENSY3_LP();
-
 sleep_block_t lp_cfg; // sleep configuration
 //-------------------------------
-#define GC_ADC_A0 5
-#define GC_ADC_A1 14
-#define GC_ADC_A2 8
-#define GC_ADC_A3 9
-#define GC_ADC_A4 13
-#define GC_ADC_A5 12
-#define GC_ADC_A6 6
-#define GC_ADC_A7 7
-#define GC_ADC_A8 15
-#define GC_ADC_A9 4
-#define GC_ADC_A10 0
-#define GC_ADC_A11 19
-#define GC_ADC_A12 3
+#define GC_ADC0_A0 5
+#define GC_ADC0_A1 14
+#define GC_ADC0_A2 8
+#define GC_ADC0_A3 9
+#define GC_ADC0_A4 13
+#define GC_ADC0_A5 12
+#define GC_ADC0_A6 6
+#define GC_ADC0_A7 7
+#define GC_ADC0_A8 15
+#define GC_ADC0_A9 4
+#define GC_ADC0_A10 0
+#define GC_ADC0_A11 19
+#define GC_ADC0_A12 3
+#define GC_ADC0_A13 21
+#define GC_ADC1_A2 GC_ADC0_A2
+#define GC_ADC1_A3 GC_ADC0_A3
+#define GC_ADC1_A10 3
 #define GC_ADC_TEMP 26
-#define GC_ADC_REFSEL 0 // 0->3.3v(ext), 1->1.2v
+#define GC_ADC_BANDGAP 27
+#define GC_ADC_REFSEL 0 // 0->3.3v(ext 2.5v), 1->1.2v
+#define GC_ADC0_AZ GC_ADC0_A11
+#define GC_ADC0_AZV 0x8000 // 1.25v
+#define GC_ADC1_AZ GC_ADC_BANDGAP
+#define GC_ADC1_AZV 0x6667 // 1v
 //-------------------------------
-#define GC_ADC_RING_SIZE 0x1000
-#define GC_ADC_RING_SIZE_BYTES 0x2000
-#define GC_ADC_RING_SIZE_HASH 0xFFF
-DMAMEM volatile uint16_t __attribute__((aligned(GC_ADC_RING_SIZE_BYTES))) adc_ring_buffer[GC_ADC_RING_SIZE];
+#define GC_ADC_VREF 2500 // external vref
+#define GC_ADC_BITS 16
+#define GC_ADC_RING_SIZE 0x2000
+#define GC_ADC_RING_SIZE_BYTES (GC_ADC_RING_SIZE*2) // 2 == sizeof(uint16_t)
+#define GC_ADC_RING_SIZE_HASH (GC_ADC_RING_SIZE-1)
+DMAMEM
+volatile uint16_t
+  __attribute__((aligned(GC_ADC_RING_SIZE_BYTES)))
+  adc_ring_buffer[GC_ADC_RING_SIZE];
 
-volatile uint32_t adc_config[10] = {
-  ADC_SC1_ADCH(GC_ADC_A4),
-  ADC_SC1_ADCH(GC_ADC_A6),
-  ADC_SC1_ADCH(GC_ADC_A9),
+volatile uint32_t adc_config[14] = {
+  ADC_SC1_ADCH(GC_ADC0_A4), // GC_ADC0_A2 in gc v3.4
+  ADC_SC1_ADCH(GC_ADC0_A6), // GC_ADC0_A3 in gc v3.4
+  ADC_SC1_ADCH(GC_ADC0_A9), // GC_ADC0_A10 in gc v3.4
   ADC_SC1_ADCH(31), // stop=0b11111=31
-  ADC_SC1_ADCH(GC_ADC_A10), // read battery state
+  ADC_SC1_ADCH(GC_ADC0_A10), // read battery state
   ADC_SC1_ADCH(31), // stop=0b11111=31
-  ADC_SC1_ADCH(GC_ADC_A11), // read zero vref
+  ADC_SC1_ADCH(GC_ADC0_A11), // read zero vref
   ADC_SC1_ADCH(31), // stop=0b11111=31
   ADC_SC1_ADCH(GC_ADC_TEMP), // read temperature
+  ADC_SC1_ADCH(31), // stop=0b11111=31
+  ADC_SC1_ADCH(GC_ADC1_A10), //  A2 in gc v3.4
+  ADC_SC1_ADCH(GC_ADC1_A10), //  A3 in gc v3.4
+  ADC_SC1_ADCH(GC_ADC1_A10), // A10 in gc v3.4
   ADC_SC1_ADCH(31), // stop=0b11111=31
 };
 //--------------------------------------------------
@@ -49,7 +66,7 @@ volatile uint32_t adc_config[10] = {
 SdFat sd;
 SdFile file;
 #define GC_SD_BUFFER_SIZE 0x1000
-#define GC_SD_BUFFER_SIZE_BYTES 0x2000
+#define GC_SD_BUFFER_SIZE_BYTES (GC_SD_BUFFER_SIZE*2) // 2 == sizeof(uint16_t)
 uint16_t sd_buffer[GC_SD_BUFFER_SIZE];
 //--------------------------------------------------
 // Create an XBee object at the top of your sketch
@@ -68,6 +85,22 @@ volatile uint32_t xbeeBD = 0;
 #define XBEE_nRTS 4
 #define XBEE_nCTS 3
 //--------------------------------------------------
+SdFile qfile;
+#define QUAKE_LIST_LENGTH 0x100
+#define QUAKE_LIST_LENGTH_BYTES QUAKE_LIST_LENGTH*4 // 4 == sizeof(uint32_t)
+uint32_t quake_list[QUAKE_LIST_LENGTH];
+uint32_t adc_play_cnt_quake;
+uint16_t quake_head;
+#define TRIGGER_BY_SOFTWARE 1
+
+#if TRIGGER_BY_SOFTWARE == 0
+#elif TRIGGER_BY_SOFTWARE == 1
+const uint32_t adc_ring_buffer_mmin = (uint32_t)&(adc_ring_buffer[0]);
+const uint32_t adc_ring_buffer_mmax = (uint32_t)&(adc_ring_buffer[0]) + (GC_ADC_RING_SIZE_BYTES-1);
+volatile uint16_t quake_min;
+volatile uint16_t quake_max;
+#endif
+//--------------------------------------------------
 IntervalTimer adc_play;
 //--------------------------------------------------
 volatile uint16_t delta = 0;
@@ -77,23 +110,27 @@ volatile uint16_t sd_head = 0;
 volatile uint32_t adc_errors = 0;
 volatile uint32_t buffer_errors = 0;
 
-volatile int32_t adc_play_cnt = 0;
+volatile uint32_t adc_play_cnt = 0;
 volatile uint32_t adc_rtc_stop = 0;
 //--------------------------------------------------
 volatile uint8_t gcPlayStat = 0;// GeoCentinela Play Status
-#define GC_ST_SLEEP   0x01 // GeoCentinela is sleeping
-#define GC_ST_READING 0x02 // GeoCentinela is running
-#define GC_ST_STOP    0x04 // GeoCentinela is stoping
-#define GC_ST_CONFIG  0x08
-#define GC_ST_PLAY    0x10
+#define GC_ST_SLEEP     0x01 // GeoCentinela is sleeping
+#define GC_ST_READING   0x02 // GeoCentinela is running
+#define GC_ST_STOP      0x04 // GeoCentinela is stoping
+#define GC_ST_CONFIG    0x08
+#define GC_ST_PLAY      0x10
+#define GC_ST_FILE_OPEN 0x20
 
 volatile uint8_t gcCfgStat = 0;// GeoCentinela Config Status
 #define GC_CFG_READ   0x20 // Configure readed!
 #define GC_CFG_ADC    0x01 // ADC OK
 #define GC_CFG_DMA    0x02 // DMA OK
 //--------------------------------------------------
-#define FILE_FORMAT 0x04
-#define FILENAME_MAX_LENGH 11
+#define FILE_FORMAT 0x05
+#define FILENAME_FORMAT "GC000000.???"
+#define FILENAME_MAX_LENGH 12 // 8.3 filename
+#define FILENAME_NO_DIGITS 2  // GC000000
+#define FILENAME_EXT 4        // .???
 #define PIN_USB 30
 #define WAKE_USB PIN_30
 //--------------------------------------------------
@@ -117,7 +154,6 @@ TinyGPS gps;
 #define GPS_RTC_SYNC_TIME 5*60*1000 // 5min
 #define GPS_PPS 2
 #define GPS_IO Serial1
-//--------------------------------------------------
 //--------------------------------------------------
 #define LOG_TIMEOUT 1000
 #define SEG_A_DAY 86400
@@ -144,6 +180,8 @@ void cfgRTC()
 void setPowerDown(uint8_t mask)
 {
   if ((mask & XBEE_MASK) > 0) {
+    if ((powMask & XBEE_MASK) == 0) goto out_xbee;
+
     digitalWrite(XBEE_SLEEP_RQ, HIGH);
     uint32_t stime = millis();
     while (millis() - stime < XBEE_SLEEP_TIME) {
@@ -163,8 +201,12 @@ void setPowerDown(uint8_t mask)
 
     powMask &= ~XBEE_MASK;
   }
+out_xbee:
 
   if ((mask & SD_MASK) > 0) {
+    if ((powMask & SD_MASK) == 0) goto out_sd;
+
+    while (sd.card()->isBusy()); delay(1000);
     pinMode(SD_CS, OUTPUT); digitalWrite(SD_CS, LOW);
     pinMode(SD_SCK, OUTPUT); digitalWrite(SD_SCK, LOW);
     pinMode(SD_MOSI, OUTPUT); digitalWrite(SD_MOSI, LOW);
@@ -177,23 +219,33 @@ void setPowerDown(uint8_t mask)
 
     powMask &= ~SD_MASK;
   }
+out_sd:
 
   if ((mask & PGA_MASK) > 0) {
+    if ((powMask & PGA_MASK) == 0) goto out_pga;
+
     digitalWrite(GAIN_CS, LOW);
     digitalWrite(PGA_POW, LOW);
     powMask &= ~PGA_MASK;
   }
+out_pga:
 
   if ((mask & EXT_MASK) > 0) {
-    digitalWrite(EXT_POW, LOW);
+    if ((powMask & EXT_MASK) == 0) goto out_ext;
 
+    digitalWrite(EXT_POW, LOW);
     powMask &= ~EXT_MASK;
   }
+out_ext:
+
+  return;
 }
 
 void setPowerUp(uint8_t mask)
 {
   if ((mask & XBEE_MASK) > 0) {
+    if ((powMask & XBEE_MASK) > 0) goto out_xbee;
+
     if (xbeeBD != 0) {
       XBEE_IO.begin(xbeeBD);
     } else {
@@ -216,9 +268,13 @@ void setPowerUp(uint8_t mask)
     powMask |= XBEE_MASK;
     if (stime != 0) setPowerDown(XBEE_MASK);
   }
+out_xbee:
 
   if ((mask & SD_MASK) > 0) {
-    digitalWrite(SDX_POW, HIGH); delay(200);
+    if ((powMask & SD_MASK) > 0) goto out_sd;
+
+    digitalWrite(SDX_POW, HIGH); delay(500);
+    ADC0_SC1A = adc_config[3]; // revisar pq es necesario...
 
     sd = SdFat();
     while(!sd.begin(SD_CS, SPI_FULL_SPEED)) {
@@ -226,21 +282,38 @@ void setPowerUp(uint8_t mask)
       //sd.errorPrint();
       delay(LOG_TIMEOUT);
     }
+    while (sd.card()->isBusy()); delay(200);
     sd.chvol();
 
     powMask |= SD_MASK;
+
+    if ((powMask & XBEE_MASK) == 0) {// hibernate xbee
+      setPowerUp(XBEE_MASK);
+      setPowerDown(XBEE_MASK);
+    }
   }
+out_sd:
 
   if ((mask & PGA_MASK) > 0) {
+    if ((powMask & PGA_MASK) > 0) goto out_pga;
+
     digitalWrite(PGA_POW, HIGH); delay(200);
-    setPGA(gc_cfg.gain);
+
     powMask |= PGA_MASK;
+    setPGA(gc_cfg.gain);
   }
+out_pga:
 
   if ((mask & EXT_MASK) > 0) {
+    if ((powMask & EXT_MASK) > 0) goto out_ext;
+
     digitalWrite(EXT_POW, HIGH); delay(200);
+
     powMask |= EXT_MASK;
   }
+out_ext:
+
+  return;  
 }
 //--------------------------------------------------
 String strDouble(String str, double val, uint8_t precision)
@@ -342,7 +415,7 @@ void cfgGPS()
   // se configura la alimentacion
   pinMode(EXT_POW, OUTPUT); digitalWrite(EXT_POW, LOW);
 
-  // se configura la tarjeta el PPS:
+  // se configura el PPS:
   pinMode(GPS_PPS, INPUT);
   *portConfigRegister(GPS_PPS) = PORT_PCR_MUX(1) | PORT_PCR_PE; // INPUT_PULLDOWN
 
@@ -362,6 +435,10 @@ void cfgPGA()
 //--------------------------------------------------
 void setPGA(uint8_t gain)
 {
+  gc_cfg.set_gain(gain);
+
+  if ((powMask & PGA_MASK) == 0) return;
+
   digitalWrite(GAIN_CS, LOW);
   switch (gain) {
     case 0: {
@@ -427,6 +504,7 @@ void cfgSD()
     while(!gc_cfg.write()) {
       gc_println(PSTR("error: cfg/rw!"));
       delay(LOG_TIMEOUT);
+      if (gc_cfg.read()) break;
     }
   }
   gcCfgStat |= GC_CFG_READ;
@@ -466,6 +544,7 @@ void cfgXBEE()
   setPowerUp(XBEE_MASK);
   if ((powMask & XBEE_MASK) == 0) return;
 
+  uint8_t loop_max = 3;
   for (int8_t i = 8; i >= 0 && xbeeBD==0; i--) {
     XBEE_IO.begin(bauds[i]); delay(1050);
     XBEE_IO.write(PSTR("+++")); delay(1050);
@@ -497,7 +576,8 @@ void cfgXBEE()
 
     if (i == 0) {
       gc_println(PSTR("xbee baud rate not detected!, try again..."));
-      i = 9;
+
+      if (loop_max-- > 0) i = 9;
     }
   }
   setPowerDown(XBEE_MASK);
@@ -508,14 +588,33 @@ void cfgSDX()
   // se configura la alimentacion
   pinMode(SDX_POW, OUTPUT); digitalWrite(SDX_POW, LOW);
 
-  // se configura la tarjeta SD:
-  cfgSD();
-
   // se configura el XBEE:
   cfgXBEE();
+
+  // se configura la tarjeta SD:
+  cfgSD();
 }
 //--------------------------------------------------
+void clearDMA()
+{
+  // enable DMA and DMAMUX clock
+  SIM_SCGC7 |= SIM_SCGC7_DMA;
+  SIM_SCGC6 |= SIM_SCGC6_DMAMUX;
 
+  // Clear before configure DMA channel
+  DMAMUX0_CHCFG1 = 0;
+  DMAMUX0_CHCFG3 = 0;
+  DMA_TCD1_CSR = 0;
+  DMA_TCD2_CSR = 0;
+  DMA_TCD3_CSR = 0;
+
+  // disable DMA and DMAMUX clock
+  //SIM_SCGC6 &= ~SIM_SCGC6_DMAMUX;
+  //SIM_SCGC7 &= ~SIM_SCGC7_DMA;
+
+  gcCfgStat &= ~GC_CFG_DMA;
+}
+//--------------------------------------------------
 #if F_BUS == 60000000
   #define ADC_CFG1_16BIT  ADC_CFG1_ADIV(2) | ADC_CFG1_ADICLK(1) // 7.5 MHz
 #elif F_BUS == 56000000
@@ -539,10 +638,15 @@ void cfgSDX()
 #else
 #error "F_BUS must be 60, 56, 48, 40, 36, 24, 4 or 2 MHz"
 #endif
-
 boolean cfgADC()
 {
-  if (!(gcCfgStat & GC_CFG_READ)) goto fail; // only for hardware average!
+  if (!(gcCfgStat & GC_CFG_READ)) {
+    gcCfgStat &= ~GC_CFG_ADC;
+    return false;
+  }
+
+  // clear DMA:
+  clearDMA();
 
   // ADC clock
   SIM_SCGC6 |= SIM_SCGC6_ADC0;
@@ -565,7 +669,7 @@ boolean cfgADC()
 #endif
 
   // general configuration
-  ADC0_CFG1 = 0
+  uint32_t cfg1 = 0
     //| ADC_CFG1_ADLPC     // lower power: off, on
     //| ADC_CFG1_ADIV(1)   // clock divide: 1, 2, 4, 8
     //| ADC_CFG1_ADLSMP    // sample time: short, long
@@ -573,16 +677,18 @@ boolean cfgADC()
     //| ADC_CFG1_ADICLK(1) // input clock: bus, bus/2, alternate, asynchronous
     | ADC_CFG1_16BIT       // set adc_clock, i.e: ADC_CFG1_ADIV and ADC_CFG1_ADICLK
   ;
+  ADC0_CFG1 = cfg1;
 
-  ADC0_CFG2 = 0
-    | ADC_CFG2_MUXSEL    // adc mux (see pag. 96): ADxxa, ADxxb
+  uint32_t cfg2 = 0
+    | ADC_CFG2_MUXSEL    // adc mux (see man. pag. 98 Connections/Channel Assignment): ADxxa, ADxxb
     //| ADC_CG2_ADACKEN    // asynchronous clock output: disable, enable
     | ADC_CFG2_ADHSC     // high speed configuration: normal, high
     | ADC_CFG2_ADLSTS(0) // long sample time: 20ext, 12ext, 6ext, 2ext
   ;
+  ADC0_CFG2 = cfg2;
 
   // control
-  ADC0_SC2 = 0
+  uint32_t sc2 = 0
     //| ADC_SC2_ADTRG                 // trigger select: software, hardware
     //| ADC_SC2_ACFE                  // compare function: disable, enable
     //| ADC_SC2_ACFGT                 // compare function greater than: disable, enable
@@ -590,22 +696,28 @@ boolean cfgADC()
     | ADC_SC2_DMAEN                 // DMA enable
     | ADC_SC2_REFSEL(GC_ADC_REFSEL) // 0->3.3v, 1->1.2v
   ;
+  ADC0_SC2 = sc2;
 
+  uint32_t sc3 = 0; // continuous conversion disable, hardware average disable
   if (gc_cfg.average < 4) {
-    ADC0_SC3 = 0
+    sc3 = 0
       //| ADC_SC3_ADCO                 // continuous conversion: disable, enable
       | ADC_SC3_AVGE                 // enable hardware average
       | ADC_SC3_AVGS(gc_cfg.average) // average select: 0->4, 1->8, 2->16, 3->32
     ;
-  } else {
-    ADC0_SC3 = 0; // continuous conversion disable, hardware average disable
   }
+  ADC0_SC3 = sc3;
+
+  uint32_t powMaskOld = powMask;
+
+  PMC_REGSC |= PMC_REGSC_BGBE;
+  setPowerUp(PGA_MASK);
 
   // calibration
   ADC0_SC3 |= ADC_SC3_CAL; // begin cal
 
   uint16_t cal_sum;
-  while (ADC0_SC3 & ADC_SC3_CAL);
+  while ((ADC0_SC3 & ADC_SC3_CAL) && (ADC0_SC1A & ADC_SC1_COCO));
 
   cal_sum = (ADC0_CLPS + ADC0_CLP4 + ADC0_CLP3 + ADC0_CLP2 + ADC0_CLP1 + ADC0_CLP0)/2;
   ADC0_PG = cal_sum | 0x8000;
@@ -613,29 +725,104 @@ boolean cfgADC()
   cal_sum = (ADC0_CLMS + ADC0_CLM4 + ADC0_CLM3 + ADC0_CLM2 + ADC0_CLM1 + ADC0_CLM0)/2;
   ADC0_MG = cal_sum | 0x8000;
 
+#define NAVERAGE 5000
+#define NLOOPS 3
+  uint32_t vavrg = 0;
+  // set offset:
+  ADC0_OFS = 0;
+  for (uint16_t j = 0; j < NLOOPS || vavrg != 0; j++) {
+    vavrg = 0;
+    for (uint16_t i = 0; i < NAVERAGE; i++) {
+      ADC0_SC1A = ADC_SC1_ADCH(GC_ADC0_AZ);
+      while ((ADC0_SC1A & ADC_SC1_COCO)==0);
+      vavrg += ADC0_RA;
+    }
+    vavrg /= NAVERAGE;
+    boolean ofs_sig = vavrg > (uint32_t)GC_ADC0_AZV;
+    if (ofs_sig) {
+      vavrg = (vavrg - (uint32_t)GC_ADC0_AZV) >> 1;
+      ADC0_OFS +=  ((int16_t)vavrg);
+    } else {
+      vavrg = ((uint32_t)GC_ADC0_AZV - vavrg) >> 1;
+      ADC0_OFS += -((int16_t)vavrg);
+    }
+  }
+
   // Stop conversion
   ADC0_SC1A = ADC_SC1_ADCH(0b11111);
 
+#if TRIGGER_BY_SOFTWARE == 0
+  // ADC clock
+  SIM_SCGC3 |= SIM_SCGC3_ADC1;
+
+  // general configuration
+  ADC1_CFG1 = cfg1;
+  ADC1_CFG2 = cfg2;
+
+  // control
+  if (gc_cfg.trigger_level > 0 || gc_cfg.trigger_time_number > 0) {
+    ADC1_SC2 = ADC_SC2_ACFE | ADC_SC2_ACFGT | ADC_SC2_ACREN | sc2;
+
+    ADC1_CV1 = 0x0000 + (gc_cfg.trigger_level+1);
+    ADC1_CV2 = 0xFFFF - gc_cfg.trigger_level;
+  } else {
+    ADC1_SC2 = sc2;
+
+    ADC1_CV1 = 0;
+    ADC1_CV2 = 0;
+  }
+  ADC1_SC3 = sc3;
+
+  // calibration
+  ADC1_SC3 |= ADC_SC3_CAL; // begin cal
+  while ((ADC1_SC3 & ADC_SC3_CAL) && (ADC1_SC1A & ADC_SC1_COCO));
+
+  cal_sum = (ADC1_CLPS + ADC1_CLP4 + ADC1_CLP3 + ADC1_CLP2 + ADC1_CLP1 + ADC1_CLP0)/2;
+  ADC1_PG = cal_sum | 0x8000;
+
+  cal_sum = (ADC1_CLMS + ADC1_CLM4 + ADC1_CLM3 + ADC1_CLM2 + ADC1_CLM1 + ADC1_CLM0)/2;
+  ADC1_MG = cal_sum | 0x8000;
+
+  // set offset:
+  ADC1_OFS = 0;
+  for (uint16_t j = 0; j < NLOOPS || vavrg != 0; j++) {
+    vavrg = 0;
+    for (uint16_t i = 0; i < NAVERAGE; i++) {
+      ADC1_SC1A = ADC_SC1_ADCH(GC_ADC1_AZ);
+      while ((ADC1_SC1A & ADC_SC1_COCO)==0);
+      vavrg += ADC1_RA;
+    }
+    vavrg /= NAVERAGE;
+    boolean ofs_sig = vavrg > (uint32_t)GC_ADC1_AZV;
+    if (ofs_sig) {
+      vavrg = (vavrg - (uint32_t)GC_ADC1_AZV) >> 1;
+      ADC1_OFS +=  ((int16_t)vavrg);
+    } else {
+      vavrg = ((uint32_t)GC_ADC1_AZV - vavrg) >> 1;
+      ADC1_OFS += -((int16_t)vavrg);
+    }
+  }
+
+  // Stop conversion
+  ADC1_SC1A = ADC_SC1_ADCH(0b11111);
+#endif
+
+  if ((powMaskOld & PGA_MASK)==0) setPowerDown(PGA_MASK);
+  PMC_REGSC &= ~PMC_REGSC_BGBE;
+
   gcCfgStat |= GC_CFG_ADC;
   return true;
-
-fail:
-  gcCfgStat &= ~GC_CFG_ADC;
-  return false;
 }
 
 void cfgDMA()
 {
   uint32_t mod = 1+log2(GC_ADC_RING_SIZE);
 
+  clearDMA();
+
   // enable DMA and DMAMUX clock
   SIM_SCGC7 |= SIM_SCGC7_DMA;
   SIM_SCGC6 |= SIM_SCGC6_DMAMUX;
-
-  // Clear before configure DMA channel
-  DMAMUX0_CHCFG1 = 0;
-  DMA_TCD1_CSR = 0;
-  DMA_TCD2_CSR = 0;
 
   // channels priority
   DMA_CR |= DMA_CR_ERCA; // enable round robin scheduling
@@ -662,7 +849,7 @@ void cfgDMA()
   // ERQ bit is not affected when the major loop is complete DREQ=0
   //| DMA_TCD_CSR_MAJORELINK // enable major loop channel to channel linking
     | DMA_TCD_CSR_BWC(0) // no eDMA engine stall
-  //  | DMA_TCD_CSR_MAJORLINKCH(2) // major loop channel to channel linking set$
+  //  | DMA_TCD_CSR_MAJORLINKCH(2) // major loop channel to channel linking set to 2
   //  | DMA_TCD_CSR_INTMAJOR // enable the end-of-major loop interrupt
   ;
 
@@ -702,79 +889,53 @@ void cfgDMA()
   // configure the DMAMUX so that the ADC DMA request triggers DMA channel 1
   DMAMUX0_CHCFG1 = DMAMUX_ENABLE | DMAMUX_SOURCE_ADC0;
 
+#if TRIGGER_BY_SOFTWARE == 0
+  // configure the DMA transfer control descriptor 3
+  DMA_TCD3_SADDR = &(adc_config[1]);
+  DMA_TCD3_SOFF = 4; // Nº bytes between data
+  DMA_TCD3_ATTR = 0
+    | DMA_TCD_ATTR_SMOD(0)
+    | DMA_TCD_ATTR_SSIZE(2)
+    | DMA_TCD_ATTR_DMOD(0)
+    | DMA_TCD_ATTR_DSIZE(2);
+  DMA_TCD3_NBYTES_MLNO = 4; // Nº bytes to be transferred
+  DMA_TCD3_SLAST = 0;
+  DMA_TCD3_DADDR = &(ADC1_SC1A); // must be 'nbytes*dsize' aligned
+  DMA_TCD3_DOFF = 0; // Nº bytes between data
+  DMA_TCD3_DLASTSGA = 0;
+
+  DMA_TCD3_CITER_ELINKNO = DMA_TCD3_BITER_ELINKNO = 1;
+
+  DMA_TCD3_CSR &= ~DMA_TCD_CSR_DONE;
+  DMA_TCD3_CSR = 0
+  // disable scatter/gatter processing ESG=0
+  // ERQ bit is not affected when the major loop is complete DREQ=0
+  //| DMA_TCD_CSR_MAJORELINK // enable major loop channel to channel linking
+    | DMA_TCD_CSR_BWC(0) // no eDMA engine stall
+  //  | DMA_TCD_CSR_MAJORLINKCH(2) // major loop channel to channel linking set to 2
+  //  | DMA_TCD_CSR_INTMAJOR // enable the end-of-major loop interrupt
+  ;
+
+  // to connect ADC with DMA
+  DMA_SERQ = 3; // enable channel 3 requests
+
+  // configure the DMAMUX so that the ADC DMA request triggers DMA channel 3
+  DMAMUX0_CHCFG3 = DMAMUX_ENABLE | DMAMUX_SOURCE_ADC1;
+#endif
+
   gcCfgStat |= GC_CFG_DMA;
-}
-
-//----------------------------------------------------------------------
-static void cfgGetADC()
-{
-  // vref:
-  VREF_TRM = 0
-    | VREF_TRM_CHOPEN
-    | VREF_TRM_TRIM(0x20);
-
-  VREF_SC = 0
-    | VREF_SC_VREFEN     // Internal Voltage Reference enable
-    | VREF_SC_REGEN      // Regulator enable
-    | VREF_SC_ICOMPEN    // Second order curvature compensation enable
-    | VREF_SC_MODE_LV(1) // power buffer mode: 0->Bandgap on only, 1->High, 2->Low
-  ;
-
-  // general configuration
-  ADC0_CFG1 = 0
-    //| ADC_CFG1_ADLPC     // lower power: off, on
-    //| ADC_CFG1_ADIV(1)   // clock divide: 1, 2, 4, 8
-    | ADC_CFG1_ADLSMP    // sample time: short, long
-    | ADC_CFG1_MODE(3)   // conversion mode: 8, 12, 10, 16
-    //| ADC_CFG1_ADICLK(1) // input clock: bus, bus/2, alternate, asynchronous
-    | ADC_CFG1_16BIT       // set adc_clock, i.e: ADC_CFG1_ADIV and ADC_CFG1_ADICLK
-  ;
-
-  ADC0_CFG2 = 0
-    | ADC_CFG2_MUXSEL    // adc mux (see pag. 96): ADxxa, ADxxb
-    //| ADC_CG2_ADACKEN    // asynchronous clock output: disable, enable
-    //| ADC_CFG2_ADHSC     // high speed configuration: normal, high
-    | ADC_CFG2_ADLSTS(0) // long sample time: 20ext, 12ext, 6ext, 2ext
-  ;
-
-  // control
-  ADC0_SC2 = 0
-    //| ADC_SC2_ADTRG     // trigger select: software, hardware
-    //| ADC_SC2_ACFE      // compare function: disable, enable
-    //| ADC_SC2_ACFGT     // compare function greater than: disable, enable
-    //| ADC_SC2_ACREN     // compare function range: disable, enable
-    //| ADC_SC2_DMAEN     // DMA enable
-    | ADC_SC2_REFSEL(1) // 0->3.3v, 1->1.2v
-  ;
-
-  ADC0_SC3 = 0
-    //| ADC_SC3_ADCO    // continuous conversion: disable, enable
-    | ADC_SC3_AVGE    // enable hardware average
-    | ADC_SC3_AVGS(3) // average select: 0->4, 1->8, 2->16, 3->32
-  ;
-
-  // calibration
-  ADC0_SC3 |= ADC_SC3_CAL; // begin cal
-
-  uint16_t cal_sum;
-  while (ADC0_SC3 & ADC_SC3_CAL);
-
-  cal_sum = (ADC0_CLPS + ADC0_CLP4 + ADC0_CLP3 + ADC0_CLP2 + ADC0_CLP1 + ADC0_CLP0)/2;
-  ADC0_PG = cal_sum | 0x8000;
-
-  cal_sum = (ADC0_CLMS + ADC0_CLM4 + ADC0_CLM3 + ADC0_CLM2 + ADC0_CLM1 + ADC0_CLM0)/2;
-  ADC0_MG = cal_sum | 0x8000;
-
-  // Stop conversion
-  ADC0_SC1A = ADC_SC1_ADCH(0b11111);
 }
 //----------------------------------------------------------------------
 float getTemp()
 {
-  if (!(gcCfgStat & GC_CFG_DMA)) return 0;
+  if (!(gcCfgStat & GC_CFG_ADC)) return 0;
 
-  // Se configura el ADC para leer la temperatura
-  cfgGetADC();
+  // Se desconecta el DMA
+  clearDMA();
+
+  // Se prende el voltage de referencia
+  uint32_t powMaskOld = powMask;
+  setPowerUp(PGA_MASK);
 
   // Se lee la temperatura
   uint32_t bvalue = 0;
@@ -786,22 +947,29 @@ float getTemp()
   }
   bvalue /= n;
 
-  // configure adc
-  cfgADC();
+  // se para la conversion
+  ADC0_SC1A = adc_config[3];
 
-  // configure DMA
+  // Si estaba apagado el PGA se apaga:
+  if ((powMaskOld & PGA_MASK) == 0) setPowerDown(PGA_MASK);
+
+  // se reconecta el DMA
   cfgDMA();
 
-  float mV_value = 1195.0*bvalue/65536.0;
+  float mV_value = 2500.0*bvalue/65536.0;
   return 25.0-((mV_value-719)/1.715);// Temp = 25 - ((mV_temp - mV_temp25)/m)
 }
 //----------------------------------------------------------------------
 float getVBat()
 {
-  if (!(gcCfgStat & GC_CFG_DMA)) return 0;
+  if (!(gcCfgStat & GC_CFG_ADC)) return 0;
 
-  // Se configura el ADC para leer el voltaje de la bateria
-  cfgGetADC();
+  // Se desconecta el DMA
+  clearDMA();
+
+  // Se prende el voltage de referencia
+  uint32_t powMaskOld = powMask;
+  setPowerUp(PGA_MASK);
 
   // Se lee el votaje de la bateria
   uint32_t bvalue = 0;
@@ -813,23 +981,29 @@ float getVBat()
   }
   bvalue /= n;
 
-  // configure adc
-  cfgADC();
+  // se para la conversion
+  ADC0_SC1A = adc_config[3];
 
-  // configure DMA
+  // Si estaba apagado el PGA se apaga:
+  if ((powMaskOld & PGA_MASK) == 0) setPowerDown(PGA_MASK);
+
+  // se reconecta el DMA
   cfgDMA();
 
-  float mV_value = 1.195*bvalue/65536.0;
+  float mV_value = 2.5*bvalue/65536.0;
   return 21*mV_value;
 }
 //----------------------------------------------------------------------
 // User callback handler
-void callbackhandler() {
+void callbackhandler()
+{
   setSyncProvider(getTeensy3Time);
 }
 
 uint32_t deep_sleep()
 {
+  if (!(gcCfgStat & GC_CFG_READ)) return 0;
+
   // reset lp_cfg
   memset(&lp_cfg, 0, sizeof(sleep_block_t));
 
@@ -842,8 +1016,13 @@ uint32_t deep_sleep()
   // user callback function
   lp_cfg.callback = callbackhandler;
 
+  if (HIGH == digitalRead(PIN_USB)) return 0;
+
   // sleep
+  uint32_t powMaskOld = powMask;
+  setPowerDown(SD_MASK|XBEE_MASK|PGA_MASK|EXT_MASK);
   lp.DeepSleep(&lp_cfg);
+  setPowerUp(powMaskOld);
 
   return 0;
 }
@@ -868,9 +1047,14 @@ uint32_t sleep_chrono()
   // user callback function
   lp_cfg.callback = callbackhandler;
 
+  if (HIGH == digitalRead(PIN_USB)) return 0;
+
   // sleep
   if (lp_cfg.rtc_alarm > 0) {
+    uint32_t powMaskOld = powMask;
+    setPowerDown(SD_MASK|XBEE_MASK|PGA_MASK|EXT_MASK);
     lp.DeepSleep(&lp_cfg);
+    setPowerUp(powMaskOld);
 
     if (lp_cfg.wake_source == WAKE_USB) {
       return 0;
@@ -926,9 +1110,14 @@ uint32_t sleep_daily()
   // user callback function
   lp_cfg.callback = callbackhandler;
 
+  if (HIGH == digitalRead(PIN_USB)) return 0;
+
   // sleep
   if (lp_cfg.rtc_alarm > 0) {
+    uint32_t powMaskOld = powMask;
+    setPowerDown(SD_MASK|XBEE_MASK|PGA_MASK|EXT_MASK);
     lp.DeepSleep(&lp_cfg);
+    setPowerUp(powMaskOld);
 
     if (lp_cfg.wake_source == WAKE_USB) {
       return 0;
@@ -941,9 +1130,15 @@ uint32_t sleep_daily()
   return dseg*(1000000/gc_cfg.tick_time_useg);
 }
 //----------------------------------------------------------------------
+boolean files_close();
 boolean gcStop()
 {
   if (!(gcPlayStat & GC_ST_STOP)) return false;
+
+  if (!(gcPlayStat & GC_ST_FILE_OPEN)) {
+    gcPlayStat &= ~GC_ST_STOP;
+    return true;
+  }
 
   // stop adc_play
   adc_play.end();
@@ -967,6 +1162,7 @@ boolean gcStop()
     delta--;
   }
   file.write(sd_buffer, sd_head * sizeof(uint16_t));
+  qfile.write(quake_list, quake_head * sizeof(uint32_t));
 
   // save errors
   file.write((uint8_t*)&buffer_errors, sizeof(uint32_t)); // 4
@@ -976,8 +1172,7 @@ boolean gcStop()
   file.write((uint8_t*)&adc_rtc_stop, sizeof(uint32_t)); // +4 = 12
 
   // save act_play_cnt
-  file.write((int32_t*)&adc_play_cnt, sizeof(int32_t)); // +4 = 16
-  adc_play_cnt = 0;
+  file.write((uint32_t*)&adc_play_cnt, sizeof(uint32_t)); // +4 = 16
 
   // write float vbat:
   float vbat = getVBat();
@@ -990,17 +1185,10 @@ boolean gcStop()
   // file timestamp
   file.timestamp(T_WRITE, year(), month(), day(), hour(), minute(), second());
   file.timestamp(T_ACCESS, year(), month(), day(), hour(), minute(), second());
+  qfile.timestamp(T_WRITE, year(), month(), day(), hour(), minute(), second());
+  qfile.timestamp(T_ACCESS, year(), month(), day(), hour(), minute(), second());
 
-  if (file.getWriteError()) {
-    gc_println(PSTR("error:stop: write file!"));
-    goto fail;
-  }
-
-  // close file
-  if (!file.close()) {
-    gc_println(PSTR("error:stop: close file!"));
-    goto fail;
-  }
+  if (!files_close()) goto fail;
 
   setPowerDown(PGA_MASK|SD_MASK);
   gcPlayStat &= ~GC_ST_STOP;
@@ -1012,29 +1200,94 @@ fail:
   return false;
 }
 
+boolean files_close()
+{
+  boolean close_file = true;
+  boolean close_qfile = true;
+
+  if (file.isOpen()) {
+    if (file.getWriteError()) {
+      gc_println(PSTR("error:stop: write file!"));
+      if (!file.close()) {
+        gc_println(PSTR("error:stop: close file!"));
+      }
+      close_file = false;
+    }
+    if (!file.close()) {
+      gc_println(PSTR("error:stop: close file!"));
+      close_file = false;
+    }
+  }
+
+  if (qfile.isOpen()) {
+    if (qfile.getWriteError()) {
+      gc_println(PSTR("error:stop: write qfile!"));
+      if (!qfile.close()) {
+        gc_println(PSTR("error:stop: close qfile!"));
+      }
+      close_qfile = false;
+    }
+    if (!qfile.close()) {
+      gc_println(PSTR("error:stop: close qfile!"));
+      close_qfile = false;
+    }
+  }
+
+  gcPlayStat &= ~GC_ST_FILE_OPEN;
+  return (close_file && close_qfile);
+}
+
 boolean file_cfg()
 {
   // create a new file
-  char name[FILENAME_MAX_LENGH+1];
-  strcpy_P(name, PSTR("CNT0000.CNT"));
-  for (uint16_t n = 0; n < 10000; n++) {
-    name[3] = '0' + n/1000;
-    name[4] = '0' + (n%1000)/100;
-    name[5] = '0' + (n%100)/10;
-    name[6] = '0' + n%10;
-    if (file.open(name, O_CREAT | O_EXCL | O_TRUNC | O_WRITE)) {
+  static char filename[FILENAME_MAX_LENGH+1] = FILENAME_FORMAT;
+  filename[FILENAME_MAX_LENGH-3] = 'X';
+  filename[FILENAME_MAX_LENGH-2] = 'Y';
+  filename[FILENAME_MAX_LENGH-1] = 'Z';
+  static uint32_t n = 0;
+  for (; n < pow(10, FILENAME_MAX_LENGH-(FILENAME_NO_DIGITS+FILENAME_EXT));) {
+    for (uint8_t i = 0; i < (FILENAME_MAX_LENGH-(FILENAME_NO_DIGITS+FILENAME_EXT)); i++) {
+      uint32_t pw = pow(10, i+1);
+      filename[(FILENAME_MAX_LENGH-FILENAME_EXT)-(i+1)] = '0' + ((n%pw)/(pw/10));
+    }
+
+    if (file.open(filename, O_CREAT | O_EXCL | O_TRUNC | O_WRITE)) {
       file.timestamp(T_CREATE, year(), month(), day(), hour(), minute(), second());
       file.timestamp(T_WRITE, year(), month(), day(), hour(), minute(), second());
       file.timestamp(T_ACCESS, year(), month(), day(), hour(), minute(), second());
+
+      filename[FILENAME_MAX_LENGH-3] = 'T';
+      filename[FILENAME_MAX_LENGH-2] = 'R';
+      filename[FILENAME_MAX_LENGH-1] = 'G';
+
+      qfile.open(filename, O_CREAT | O_TRUNC | O_WRITE);
+      qfile.timestamp(T_CREATE, year(), month(), day(), hour(), minute(), second());
+      qfile.timestamp(T_WRITE, year(), month(), day(), hour(), minute(), second());
+      qfile.timestamp(T_ACCESS, year(), month(), day(), hour(), minute(), second());
+
+      n++;
+      if (n == pow(10, FILENAME_MAX_LENGH-(FILENAME_NO_DIGITS+FILENAME_EXT))) n = 0;
       break;
     }
+
+    n++;
+    if (n == pow(10, FILENAME_MAX_LENGH-(FILENAME_NO_DIGITS+FILENAME_EXT))) n = 0;
   }
 
   if (!file.isOpen()) {
     gc_println(PSTR("log:file open failed"));
+
     file.timestamp(T_CREATE, 1980, month(), day(), hour(), minute(), second());
     file.timestamp(T_WRITE, 1980, month(), day(), hour(), minute(), second());
     file.timestamp(T_ACCESS, 1980, month(), day(), hour(), minute(), second());
+    file.close();
+
+    qfile.timestamp(T_CREATE, 1980, month(), day(), hour(), minute(), second());
+    qfile.timestamp(T_WRITE, 1980, month(), day(), hour(), minute(), second());
+    qfile.timestamp(T_ACCESS, 1980, month(), day(), hour(), minute(), second());
+    qfile.close();
+
+    gcPlayStat &= ~GC_ST_FILE_OPEN;
     return false;
   } else {
     // write uint8_t file format
@@ -1052,35 +1305,48 @@ boolean file_cfg()
     // write uint32_t SIM_UIDL
     file.write((uint8_t*)&SIM_UIDL, sizeof(uint32_t)); // +4 = 17
 
+    // write uint16_t GC_ADC_VREF in mV and bits:
+    uint16_t bitsVref = ((GC_ADC_BITS << 12) & 0xF000) | (GC_ADC_VREF & 0x0FFF);
+    file.write((uint8_t*)&bitsVref, sizeof(uint16_t)); // +2 = 19
+
+    // write float sensitivity:
+    file.write((uint8_t*)&gc_cfg.sensitivity, sizeof(float)); // +4 = 23
+
+    // write uint16_t trigger_level:
+    file.write((uint8_t*)&gc_cfg.trigger_level, sizeof(uint16_t)); // +2 = 25
+
+    // write uint32_t trigger_time_number:
+    file.write((uint8_t*)&gc_cfg.trigger_time_number, sizeof(uint32_t)); // +4 = 29
+
     // write uint8_t ((gain << 4)| average):
-    file.write((gc_cfg.gain << 4) | gc_cfg.average); // +1 = 18
+    file.write((uint8_t)((gc_cfg.gain << 4) | gc_cfg.average)); // +1 = 30
 
     // write uint32_t tick_time_useg:
-    file.write((uint8_t*)&gc_cfg.tick_time_useg, sizeof(uint32_t)); // +4 = 22
-
-    // write uint8_t time_type:
-    file.write(gc_cfg.time_type); // +1 = 23
+    file.write((uint8_t*)&gc_cfg.tick_time_useg, sizeof(uint32_t)); // +4 = 34
 
     // write uint32_t time_begin_seg:
-    file.write((uint8_t*)&gc_cfg.time_begin_seg, sizeof(uint32_t)); // +4 = 27
+    file.write((uint8_t*)&gc_cfg.time_begin_seg, sizeof(uint32_t)); // +4 = 38
 
     // write uint32_t time_end_seg:
-    file.write((uint8_t*)&gc_cfg.time_end_seg, sizeof(uint32_t)); // +4 = 31
+    file.write((uint8_t*)&gc_cfg.time_end_seg, sizeof(uint32_t)); // +4 = 42
 
     // write float vbat:
     float vbat = getVBat();
-    file.write((uint8_t*)&vbat, sizeof(float)); // +4 = 35
+    file.write((uint8_t*)&vbat, sizeof(float)); // +4 = 46
 
     // write float temp:
     float temp = getTemp();
-    file.write((uint8_t*)&temp, sizeof(float)); // +4 = 39
+    file.write((uint8_t*)&temp, sizeof(float)); // +4 = 50
 
+    gcPlayStat |= GC_ST_FILE_OPEN;
     return true;
   }
 }
 
-void adc_play_callback() {
-  if (adc_play_cnt-- <= 0) {
+void adc_play_callback()
+{
+  if (adc_play_cnt-- == 0) {
+    adc_play_cnt = 0;
     adc_rtc_stop = Teensy3Clock.get();
     stop_reading();
     return;
@@ -1100,58 +1366,108 @@ void adc_play_callback() {
 
   delta += 3;
 
+#if TRIGGER_BY_SOFTWARE == 0
+#elif TRIGGER_BY_SOFTWARE >= 1
+  uint16_t *adc_value = (uint16_t*)DMA_TCD1_DADDR;
+#endif
+
   DMA_TCD2_SADDR = &(adc_config[1]);
   ADC0_SC1A = adc_config[0];
+
+  if (adc_play_cnt_quake > adc_play_cnt) {
+#if TRIGGER_BY_SOFTWARE == 0
+    if (ADC1_SC1A != adc_config[3]) {
+      if (adc_play_cnt > gc_cfg.trigger_time_number)
+        adc_play_cnt_quake = adc_play_cnt - gc_cfg.trigger_time_number;
+      else
+        adc_play_cnt_quake = 0;
+
+      quake_list[quake_head++] = adc_play_cnt+2;
+      quake_head &= (QUAKE_LIST_LENGTH-1);
+    }
+
+    DMA_TCD3_SADDR = &(adc_config[11]);
+    ADC1_SC1A = adc_config[10];
+#elif TRIGGER_BY_SOFTWARE == 1
+    uint16_t* x = (uint16_t*)(((uint32_t)(adc_value-3) | adc_ring_buffer_mmin) & adc_ring_buffer_mmax);
+    uint16_t* y = (uint16_t*)(((uint32_t)(adc_value-2) | adc_ring_buffer_mmin) & adc_ring_buffer_mmax);
+    uint16_t* z = (uint16_t*)(((uint32_t)(adc_value-1) | adc_ring_buffer_mmin) & adc_ring_buffer_mmax);
+    if (quake_min > *x || *x > quake_max ||
+        quake_min > *y || *y > quake_max ||
+        quake_min > *z || *z > quake_max) {
+      if (adc_play_cnt > gc_cfg.trigger_time_number)
+        adc_play_cnt_quake = adc_play_cnt - gc_cfg.trigger_time_number;
+      else
+        adc_play_cnt_quake = 0;
+
+      quake_list[quake_head++] = adc_play_cnt+2;
+      quake_head &= (QUAKE_LIST_LENGTH-1);
+    }
+#endif
+  }
 }
 
 boolean gcStart()
 {
   if (gcPlayStat & GC_ST_READING) return false;
-  if (!(gcCfgStat & (GC_CFG_READ|GC_CFG_ADC|GC_CFG_DMA))) return false;
+
+  uint32_t cfg_all = GC_CFG_READ|GC_CFG_ADC|GC_CFG_DMA;
+  if (!((gcCfgStat & cfg_all)==cfg_all)) return false;
 
   // restart
   delta = 0; tail = 0; sd_head = 0;
   adc_errors = 0; buffer_errors = 0;
   adc_rtc_stop = 0;
 
+#if TRIGGER_BY_SOFTWARE == 0
+#elif TRIGGER_BY_SOFTWARE == 1
+  quake_min = 0x0000 + (gc_cfg.trigger_level+1);
+  quake_max = 0xFFFF - gc_cfg.trigger_level;
+#endif
+  quake_head = 0;
+  if (gc_cfg.trigger_level > 0 || gc_cfg.trigger_time_number > 0) adc_play_cnt_quake = adc_play_cnt-1;
+  else adc_play_cnt_quake = 0;
+
   setPowerUp(PGA_MASK|SD_MASK);
 
   // configure file
-  if (file_cfg()) {
+  if (file_cfg()) { // => gcPlayStat += GC_ST_FILE_OPEN
     // read rtc time
     uint32_t rtc_time = Teensy3Clock.get();
 
     // write uint32_t rtc_time_sec:
     sd_buffer[sd_head++] = ((uint16_t*)&rtc_time)[0];
-    sd_buffer[sd_head++] = ((uint16_t*)&rtc_time)[1]; // +4 = 39
+    sd_buffer[sd_head++] = ((uint16_t*)&rtc_time)[1]; // +4 = 54
 
     // write uint32_t adc_play_cnt:
     sd_buffer[sd_head++] = ((uint16_t*)&adc_play_cnt)[0];
-    sd_buffer[sd_head++] = ((uint16_t*)&adc_play_cnt)[1]; // +4 = 43
+    sd_buffer[sd_head++] = ((uint16_t*)&adc_play_cnt)[1]; // +4 = 58
 
     // configure adc_play
     sd_buffer[sd_head++] = 0;
-    sd_buffer[sd_head++] = 0; // +4 = 47
+    sd_buffer[sd_head++] = 0; // +4 = 62
+
     if (!adc_play.begin(adc_play_callback, gc_cfg.tick_time_useg)) {
+      adc_play.end();
+
       sd_buffer[sd_head-1] = 61153;
 
-      setPowerDown(PGA_MASK|SD_MASK);
+      if (!files_close()) goto fail;
 
       gc_println(PSTR("error:start: adc_play!"));
-      return false;
+      goto fail;
     }
-
-    CORE_PIN10_CONFIG &= ~PORT_PCR_DSE;
-    CORE_PIN11_CONFIG &= ~PORT_PCR_DSE;
-    CORE_PIN13_CONFIG &= ~PORT_PCR_DSE;
 
     gcPlayStat |= GC_ST_READING;
     return true;
-  } else {
+  } else { // gcPlayStat -= GC_ST_FILE_OPEN
     gc_println(PSTR("error:start: file!"));
-    setPowerDown(PGA_MASK);
-    return false;
+    goto fail;
   }
+
+fail:
+  setPowerDown(PGA_MASK|SD_MASK);
+  return false;
 }
 //-----------------------------------------------------------------------
 void gc_cmd(uint8_t* cmd, uint8_t n)
@@ -1161,6 +1477,14 @@ void gc_cmd(uint8_t* cmd, uint8_t n)
                       '\x00', '\x00', '\x00'};
   Serial.write(head, 9);
   Serial.write(cmd, n);
+}
+
+void gc_cmd(uint8_t cmd)
+{
+  uint8_t head[10] = { '\xaa', '\xaa', '\xaa',
+                      '\xff', '\xff', '\xff',
+                      '\x00', '\x00', '\x00', cmd};
+  Serial.write(head, 10);
 }
 
 void gc_print(const char *log_string)
@@ -1190,16 +1514,17 @@ void printDigits(int digits, boolean first)
 
 void digitalClockDisplay()
 {
-  // digital clock display of the time
+  // digital clock display of the time:
+  Serial.print(year());
+  Serial.print(F("-"));
+  Serial.print(month());
+  Serial.print(F("-"));
+  Serial.print(day());
+  Serial.print(F(" "));
   printDigits(hour(), true);
   printDigits(minute(), false);
   printDigits(second(), false);
-  Serial.print(F(" "));
-  Serial.print(day());
-  Serial.print(F("/"));
-  Serial.print(month());
-  Serial.print(F("/"));
-  Serial.print(year());
-  Serial.print(F(" : "));
-  Serial.println(Teensy3Clock.get() % SEG_A_DAY);
+  Serial.println();
+  //Serial.print(F(" "));
+  //Serial.println(Teensy3Clock.get() % SEG_A_DAY);
 }
