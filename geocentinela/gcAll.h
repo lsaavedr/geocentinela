@@ -43,9 +43,9 @@ volatile uint16_t
   adc_ring_buffer[GC_ADC_RING_SIZE];
 
 volatile uint32_t adc_config[14] = {
-  ADC_SC1_ADCH(GC_ADC0_A4), // GC_ADC0_A2 in gc v3.4
-  ADC_SC1_ADCH(GC_ADC0_A6), // GC_ADC0_A3 in gc v3.4
-  ADC_SC1_ADCH(GC_ADC0_A9), // GC_ADC0_A10 in gc v3.4
+  ADC_SC1_ADCH(GC_ADC0_A2), // GC_ADC0_A4
+  ADC_SC1_ADCH(GC_ADC0_A5), // GC_ADC0_A6
+  ADC_SC1_ADCH(GC_ADC0_A9),
   ADC_SC1_ADCH(31), // stop=0b11111=31
   ADC_SC1_ADCH(GC_ADC0_A10), // read battery state
   ADC_SC1_ADCH(31), // stop=0b11111=31
@@ -59,10 +59,10 @@ volatile uint32_t adc_config[14] = {
   ADC_SC1_ADCH(31), // stop=0b11111=31
 };
 //--------------------------------------------------
-#define SD_CS 10
+#define SD_CS   10
 #define SD_MOSI 11
 #define SD_MISO 12
-#define SD_SCK 13
+#define SD_SCK  13
 SdFat sd;
 SdFile file;
 #define GC_SD_BUFFER_SIZE 0x1000
@@ -70,20 +70,26 @@ SdFile file;
 uint16_t sd_buffer[GC_SD_BUFFER_SIZE];
 //--------------------------------------------------
 // Create an XBee object at the top of your sketch
-XBee xbng = XBee();
 #define XBEE_SLEEP_TIME 10000
 
-#define XBEE_nSLEEP_ON 9
-#define XBEE_SLEEP_RQ 6
-#define XBEE_nRESET 5
+#define XBEE_nSLEEP_ON 20 // 9
+#define XBEE_SLEEP_RQ   9 // 6
+#define XBEE_nRESET    06 // 5
 
 #define XBEE_IO Serial3
-#define XBEE_RX 7
-#define XBEE_TX 8
+#define XBEE_RX 07
+#define XBEE_TX  8
 volatile uint32_t xbeeBD = 0;
 
-#define XBEE_nRTS 4
-#define XBEE_nCTS 3
+#define XBEE_nRTS 15 // 4
+#define XBEE_nCTS 21 // 3
+
+#define GSM_IO XBEE_IO
+#define GSM_RX XBEE_RX
+#define GSM_TX XBEE_TX
+#define GSM_W1 XBEE_nCTS
+#define GSM_BUFFER_SIZE 256
+char GSM_string[GSM_BUFFER_SIZE];
 //--------------------------------------------------
 SdFile qfile;
 #define QUAKE_LIST_LENGTH 0x100
@@ -100,6 +106,11 @@ const uint32_t adc_ring_buffer_mmax = (uint32_t)&(adc_ring_buffer[0]) + (GC_ADC_
 volatile uint16_t quake_min;
 volatile uint16_t quake_max;
 #endif
+
+SdFile lfile;
+SdFile afile;
+#define FILENAME_PPV_LOG "PPV.LOG"
+#define FILENAME_PPV_AUX "PPV.AUX"
 //--------------------------------------------------
 IntervalTimer adc_play;
 //--------------------------------------------------
@@ -127,32 +138,37 @@ volatile uint8_t gcCfgStat = 0;// GeoCentinela Config Status
 #define GC_CFG_DMA    0x02 // DMA OK
 //--------------------------------------------------
 #define FILE_FORMAT 0x05
+#define FILE_HEAD 62
+#define FILE_TAIL 24
 #define FILENAME_FORMAT "GC000000.???"
 #define FILENAME_MAX_LENGH 12 // 8.3 filename
 #define FILENAME_NO_DIGITS 2  // GC000000
 #define FILENAME_EXT 4        // .???
+char filename[FILENAME_MAX_LENGH+1] = FILENAME_FORMAT;
+
 #define PIN_USB 30
 #define WAKE_USB PIN_30
 //--------------------------------------------------
-#define SDX_POW 19 // 3.3V
+#define SDX_POW 03 // 19 // 3.3V
 #define PGA_POW 22 // 5Va
-#define EXT_POW 21 // 3.3VP
-#define XBEE_MASK 0b1000
-#define SD_MASK   0b0100
-#define PGA_MASK  0b0010
-#define EXT_MASK  0b0001
-#define POWER_UP_MASK 0b10000
+#define EXT_POW 02 // 21 // 3.3VP
+#define XBEE_MASK 0b01000
+#define SD_MASK   0b00100
+#define PGA_MASK  0b00010
+#define EXT_MASK  0b00001
+#define GSM_MASK  0b10000
+#define POWER_UP_MASK 0b100000
 volatile uint8_t powMask = 0;
 //--------------------------------------------------
-#define GAIN_CS 15
-#define GAIN_A0 16
+#define GAIN_CS 05 // 15
+#define GAIN_A0 18 // 16
 #define GAIN_A1 14
 #define GAIN_A2 17
 //--------------------------------------------------
 TinyGPS gps;
 #define HOUR_OFFSET -3
 #define GPS_RTC_SYNC_TIME 5*60*1000 // 5min
-#define GPS_PPS 2
+#define GPS_PPS 04 // 2
 #define GPS_IO Serial1
 //--------------------------------------------------
 #define LOG_TIMEOUT 1000
@@ -160,6 +176,7 @@ TinyGPS gps;
 //--------------------------------------------------
 void stop_reading();
 void setPGA(uint8_t g);
+uint16_t WaitOfReaction(uint16_t);
 //--------------------------------------------------
 time_t getTeensy3Time()
 {
@@ -179,6 +196,23 @@ void cfgRTC()
 //--------------------------------------------------
 void setPowerDown(uint8_t mask)
 {
+  if ((mask & GSM_MASK) > 0) {
+    if ((powMask & GSM_MASK) == 0) goto out_gsm;
+
+    // clear serial line
+    GSM_IO.flush();
+    while (GSM_IO.available()) GSM_IO.read();
+
+    // normal power down
+    GSM_IO.write("AT+QPOWD=1\r");
+    uint16_t resp = WaitOfReaction(500);
+
+    GSM_IO.end();
+
+    powMask &= ~GSM_MASK;
+  }
+out_gsm:
+
   if ((mask & XBEE_MASK) > 0) {
     if ((powMask & XBEE_MASK) == 0) goto out_xbee;
 
@@ -243,6 +277,120 @@ out_ext:
 
 void setPowerUp(uint8_t mask)
 {
+  if ((mask & GSM_MASK) > 0) {
+    if ((powMask & GSM_MASK) > 0) goto out_gsm;
+
+    pinMode(GSM_W1, OUTPUT);
+    digitalWrite(GSM_W1, HIGH);
+    GSM_IO.begin(9600);
+
+    // clear serial line
+    GSM_IO.flush();
+    while (GSM_IO.available()) GSM_IO.read();
+
+    // try power on
+    digitalWrite(GSM_W1, LOW);
+    delay(1100);
+    digitalWrite(GSM_W1, HIGH);
+    uint16_t resp = WaitOfReaction(5000);
+
+    powMask |= GSM_MASK;
+    if (20 != resp) {
+gsm_fail:
+/*
+      Serial.println("fail to power on gsm!");
+      Serial.println(GSM_string);
+      Serial.print("resp:");
+      Serial.println(resp);
+*/
+      setPowerDown(GSM_MASK);
+    } else {
+      resp = WaitOfReaction(5000);
+      if (22 == resp) goto gsm_fail;
+
+      resp = WaitOfReaction(5000);
+      if (21 != resp) goto gsm_fail; // no "+CPIN:READY"?
+
+      resp = WaitOfReaction(5000);
+      if (0 != resp) goto gsm_fail; // no "Call Ready"?
+
+      // make sure the network is registered successfully
+      for (uint8_t i = 0; i < 10; i++) {
+        // clear serial line
+        GSM_IO.flush();
+        while (GSM_IO.available()) GSM_IO.read();
+
+        // check the network
+        GSM_IO.write("AT+CREG?\r");
+        resp = WaitOfReaction(300);
+        if (23 == resp) break;
+        delay(3000);
+      }
+      if (23 != resp) goto gsm_fail; // no "+CREG: 0,1"?
+
+      // clear serial line
+      GSM_IO.flush();
+      while (GSM_IO.available()) GSM_IO.read();
+
+      // Set the context 0 as the foreground context      
+      GSM_IO.write("AT+QIFGCNT=0\r");
+      resp = WaitOfReaction(300);
+      if (1 != resp) goto gsm_fail; // no "OK"?
+
+      // clear serial line
+      GSM_IO.flush();
+      while (GSM_IO.available()) GSM_IO.read();
+
+      // Set APN for the current context
+      GSM_IO.write("AT+COPS?\r");
+      resp = WaitOfReaction(75000);
+      switch (resp) {
+        case 24: { // Entel
+          // clear serial line
+          GSM_IO.flush();
+          while (GSM_IO.available()) GSM_IO.read();
+
+          // apn entel;
+          GSM_IO.write("AT+QICSGP=1,\"bam.entelpcs.cl\",\"entelpcs\",\"entelpcs\"\r");
+        } break;
+        case 25: { // Claro
+          // clear serial line
+          GSM_IO.flush();
+          while (GSM_IO.available()) GSM_IO.read();
+
+          // apn claro:
+          GSM_IO.write("AT+QICSGP=1,\"bam.clarochile.cl\",\"clarochile\",\"clarochile\"\r");
+        } break;
+        case 26: { // Movistar
+          // clear serial line
+          GSM_IO.flush();
+          while (GSM_IO.available()) GSM_IO.read();
+
+          // apn movistar
+          GSM_IO.write("AT+QICSGP=1,\"wap.tmovil.cl\",\"wap\",\"wap\"\r");
+        } break;
+        default: goto gsm_fail;
+      }
+      resp = WaitOfReaction(300);
+      if (1!=resp) goto gsm_fail;
+
+      // clear serial line
+      GSM_IO.flush();
+      while (GSM_IO.available()) GSM_IO.read();
+
+      // Set server address to the domain name server format
+      GSM_IO.write("AT+QIDNSIP=1\r");
+      resp = WaitOfReaction(300);
+      if (1!=resp) goto gsm_fail;
+
+      // Set mode: when receiving the data
+      GSM_IO.write("AT+QINDI=1\r");
+      resp = WaitOfReaction(300);
+      if (1!=resp) goto gsm_fail;
+    }
+  }
+out_gsm:
+
   if ((mask & XBEE_MASK) > 0) {
     if ((powMask & XBEE_MASK) > 0) goto out_xbee;
 
@@ -511,6 +659,25 @@ void cfgSD()
   setPowerDown(SD_MASK);
 }
 //--------------------------------------------------
+void cfgGSM()
+{
+  pinMode(XBEE_nSLEEP_ON, INPUT);
+  pinMode(XBEE_SLEEP_RQ, INPUT);
+  pinMode(XBEE_nRESET, INPUT);
+  pinMode(XBEE_nRTS, INPUT);
+  pinMode(XBEE_nCTS, INPUT);
+  pinMode(XBEE_RX, INPUT);
+  pinMode(XBEE_TX, INPUT);
+
+  GSM_IO.begin(9600);  
+  pinMode(GSM_W1, OUTPUT);
+  digitalWrite(GSM_W1, LOW);
+  delay(2000);
+  digitalWrite(GSM_W1, HIGH);
+  delay(2000);
+  GSM_IO.write("AT+QPOWD=1\r");
+}
+//--------------------------------------------------
 void cfgXBEE()
 {
   // se configura los IO
@@ -570,7 +737,7 @@ void cfgXBEE()
     }
 
     if (xbeeBD != 0) {
-      xbng.begin(XBEE_IO);
+      //xbng.begin(XBEE_IO);
       break;
     }
 
@@ -589,7 +756,10 @@ void cfgSDX()
   pinMode(SDX_POW, OUTPUT); digitalWrite(SDX_POW, LOW);
 
   // se configura el XBEE:
-  cfgXBEE();
+  //cfgXBEE();
+
+  // se configura el GSM
+  cfgGSM();
 
   // se configura la tarjeta SD:
   cfgSD();
@@ -1027,12 +1197,16 @@ uint32_t deep_sleep()
   return 0;
 }
 
+boolean gcSendPPV();
 uint32_t sleep_chrono()
 {
   if (!(gcCfgStat & GC_CFG_READ)) return 0;
 
   // reset lp_cfg
   memset(&lp_cfg, 0, sizeof(sleep_block_t));
+
+  // user callback function
+  lp_cfg.callback = callbackhandler;
 
   // OR together different wake sources
   lp_cfg.modules = (GPIO_WAKE | RTCA_WAKE);
@@ -1044,8 +1218,39 @@ uint32_t sleep_chrono()
   lp_cfg.rtc_alarm = gc_cfg.time_begin_seg;
   uint32_t dseg = gc_cfg.time_end_seg;
 
-  // user callback function
-  lp_cfg.callback = callbackhandler;
+  // sending triggers:
+  if (gc_cfg.trigger_level > 0 && gc_cfg.trigger_time_number > 0) {
+    uint32_t time_ini = Teensy3Clock.get();
+    int32_t rtc_alarm_orig = lp_cfg.rtc_alarm;
+
+    int32_t delta_sleep = 600; // 10min: tiempo de cada intento
+
+    boolean sended = false;
+    int32_t rtc_alarm = rtc_alarm_orig;
+
+    while ((rtc_alarm - delta_sleep) > 0 && !sended) {
+      uint32_t t_ini = Teensy3Clock.get();
+      if (HIGH == digitalRead(PIN_USB)) return 0;
+      sended = gcSendPPV();
+      uint32_t t_end = Teensy3Clock.get();
+
+      lp_cfg.rtc_alarm = delta_sleep - (t_end-t_ini);
+      if (lp_cfg.rtc_alarm > 0) {
+        uint32_t powMaskOld = powMask;
+        setPowerDown(SD_MASK|XBEE_MASK|PGA_MASK|EXT_MASK);
+        lp.DeepSleep(&lp_cfg);
+        setPowerUp(powMaskOld);
+
+        if (lp_cfg.wake_source == WAKE_USB) {
+          return 0;
+        }
+      }
+
+      uint32_t time_end = Teensy3Clock.get();
+      rtc_alarm = rtc_alarm_orig - (time_end-time_ini);
+    }
+    lp_cfg.rtc_alarm = rtc_alarm;
+  }
 
   if (HIGH == digitalRead(PIN_USB)) return 0;
 
@@ -1073,6 +1278,9 @@ uint32_t sleep_daily()
 
   // reset lp_cfg
   memset(&lp_cfg, 0, sizeof(sleep_block_t));
+
+  // user callback function
+  lp_cfg.callback = callbackhandler;
 
   // OR together different wake sources
   lp_cfg.modules = (GPIO_WAKE | RTCA_WAKE);
@@ -1107,8 +1315,39 @@ uint32_t sleep_daily()
     }
   }
 
-  // user callback function
-  lp_cfg.callback = callbackhandler;
+  // sending triggers:
+  if (gc_cfg.trigger_level > 0 && gc_cfg.trigger_time_number > 0) {
+    uint32_t time_ini = Teensy3Clock.get();
+    int32_t rtc_alarm_orig = lp_cfg.rtc_alarm;
+
+    int32_t delta_sleep = 3600; // 60min: tiempo de cada intento
+
+    boolean sended = false;
+    int32_t rtc_alarm = rtc_alarm_orig;
+
+    while ((rtc_alarm - delta_sleep) > 0 && !sended) {
+      uint32_t t_ini = Teensy3Clock.get();
+      if (HIGH == digitalRead(PIN_USB)) return 0;
+      sended = gcSendPPV();
+      uint32_t t_end = Teensy3Clock.get();
+
+      lp_cfg.rtc_alarm = delta_sleep - (t_end-t_ini);
+      if (lp_cfg.rtc_alarm > 0) {
+        uint32_t powMaskOld = powMask;
+        setPowerDown(SD_MASK|XBEE_MASK|PGA_MASK|EXT_MASK);
+        lp.DeepSleep(&lp_cfg);
+        setPowerUp(powMaskOld);
+
+        if (lp_cfg.wake_source == WAKE_USB) {
+          return 0;
+        }
+      }
+
+      uint32_t time_end = Teensy3Clock.get();
+      rtc_alarm = rtc_alarm_orig - (time_end-time_ini);
+    }
+    lp_cfg.rtc_alarm = rtc_alarm;
+  }
 
   if (HIGH == digitalRead(PIN_USB)) return 0;
 
@@ -1130,18 +1369,329 @@ uint32_t sleep_daily()
   return dseg*(1000000/gc_cfg.tick_time_useg);
 }
 //----------------------------------------------------------------------
-boolean files_close();
+uint16_t WaitOfReaction(uint16_t timeout)
+{
+  uint8_t index = 0;
+  uint8_t inByte = 0;
+  char WS[3];
+
+  //----- erase GSM_string
+  memset(GSM_string, 0, GSM_BUFFER_SIZE);
+  memset(WS, 0, 3);
+
+  //----- wait of the first character for "timeout" ms
+  GSM_IO.setTimeout(timeout);
+  inByte = GSM_IO.readBytes(WS, 1);
+
+  //----- wait of further characters until a pause of 30 ms occures
+  while(inByte > 0)
+  {
+    GSM_string[index++] = WS[0];
+
+    GSM_IO.setTimeout(30);
+    inByte = GSM_IO.readBytes(WS, 1);
+  }
+
+  //----- analyse the reaction of the mobile module
+  if(strstr(GSM_string, "NORMAL POWER DOWN"))     { return 19; }
+  if(strstr(GSM_string, "RDY"))                   { return 20; }
+
+  if(strstr(GSM_string, "+CPIN: READY"))          { return 21; }
+  if(strstr(GSM_string, "+CPIN: NOT INSERTED"))   { return 22; }
+
+  if(strstr(GSM_string, "+CREG: 0,1"))            { return 23; }
+
+  if(strstr(GSM_string, "ENTEL PCS"))             { return 24; }
+  if(strstr(GSM_string, "CLARO CHILE"))           { return 25; }
+  if(strstr(GSM_string, "COPS: 0,0,\"73002\""))   { return 26; }
+  if(strstr(GSM_string, "MOVISTAR"))              { return 26; }
+
+  if(strstr(GSM_string, "SIM PIN\r\n"))           { return 2; }
+  if(strstr(GSM_string, "READY\r\n"))             { return 3; }
+  if(strstr(GSM_string, "0,1\r\n"))               { return 4; }
+  if(strstr(GSM_string, "0,5\r\n"))               { return 4; }
+  if(strstr(GSM_string, "\n>"))                   { return 5; } // prompt for SMS text
+  if(strstr(GSM_string, "NO CARRIER\r\n"))        { return 6; }
+  if(strstr(GSM_string, "+CGATT: 1\r\n"))         { return 7; }
+  if(strstr(GSM_string, "IP INITIAL\r\n"))        { return 8; }
+  if(strstr(GSM_string, "IP STATUS\r\n"))         { return 8; }
+  if(strstr(GSM_string, "IP CLOSE\r\n"))          { return 8; }
+  if(strstr(GSM_string, "CONNECT OK\r\n"))        { return 9; }
+  if(strstr(GSM_string, "ALREADY CONNECT\r\n"))   { return 9; }
+  if(strstr(GSM_string, "SEND OK\r\n"))           { return 10; }
+  if(strstr(GSM_string, "RING\r\n"))              { return 11; }
+  if(strstr(GSM_string, "+QPING:"))               { return 12; }
+  if(strstr(GSM_string, "+CPMS:"))                { return 13; }
+  if(strstr(GSM_string, "OK\r\n\r\nCONNECT\r\n")) { return 14; }
+  if(strstr(GSM_string, "+QSMTPBODY:"))           { return 15; }
+  if(strstr(GSM_string, "+QSMTPPUT: 0"))          { return 16; }
+  if(strstr(GSM_string, ":0\r\n"))                { return 17; }
+  if(strstr(GSM_string, "+QFTPGET:"))             { return 18; }
+
+  if(strstr(GSM_string, "\r\nCONNECT\r\n"))       { return 27; }
+
+  if(strstr(GSM_string, "OK\r\n"))                { return 1; }
+
+  return 0;
+}
+//----------------------------------------------------------------------
+boolean gcSendPPV()
+{
+  uint32_t pMask = powMask;
+  setPowerUp(SD_MASK);
+
+  if (lfile.open(FILENAME_PPV_LOG, O_READ) && lfile.fileSize() > 0) {
+    // power on gsm
+    setPowerUp(GSM_MASK);
+
+    if ((powMask & GSM_MASK) != 0) {
+      if (afile.open(FILENAME_PPV_AUX, O_CREAT | O_TRUNC | O_WRITE)) {
+        uint32_t rtc = 0;
+        float ppv = 0;
+
+        char * url = (char*)sd_buffer;
+        uint32_t url_max_size = GC_SD_BUFFER_SIZE_BYTES;
+
+        while (lfile.read(&rtc, sizeof(uint32_t))==sizeof(uint32_t) &&
+               lfile.read(&ppv, sizeof(float))==sizeof(float)) {
+          char ppv_str[10];
+          memset(ppv_str, 0, 10);
+          dtostrf(ppv, 1, 2, ppv_str);
+
+          memset(url, 0, url_max_size);
+          snprintf(url, url_max_size,
+            "http://geobot.timining.cl/geobottest?HID=%X&MHID=%X&MLID=%X&LID=%X&TS=%X&PPV=%s",
+//            "http://www.antrax.de/WebServices/responder.php?HID=%X&MHID=%X&MLID=%X&LID=%X&TS=%X&PPV=%s",
+            SIM_UIDH, SIM_UIDMH, SIM_UIDML, SIM_UIDL,
+            rtc, ppv_str);
+
+          // clear serial line
+          GSM_IO.flush();
+          while (GSM_IO.available()) GSM_IO.read();
+
+          // Set the URL
+          char str_cmd[22];
+          memset(str_cmd, 0, 22);
+          snprintf(str_cmd, 22, "AT+QHTTPURL=%d,30\r", strlen(url));
+          GSM_IO.write(str_cmd);
+          uint16_t resp = WaitOfReaction(30000);
+
+          if (27 != resp) {
+no_send:
+            afile.write((uint8_t*)&rtc, sizeof(uint32_t));
+            afile.write((uint8_t*)&ppv, sizeof(float));
+          } else {
+            GSM_IO.write(url);
+            resp = WaitOfReaction(1000);
+            if (1 != resp) goto no_send;
+
+            // clear serial line
+            GSM_IO.flush();
+            while (GSM_IO.available()) GSM_IO.read();
+
+            // Send HTTP GET request
+            GSM_IO.write("AT+QHTTPGET=60\r");
+            resp = WaitOfReaction(300);
+            if (0 != resp) goto no_send;
+            resp = WaitOfReaction(60000);
+            if (1 != resp) goto no_send;
+
+            // clear serial line
+            GSM_IO.flush();
+            while (GSM_IO.available()) GSM_IO.read();
+
+            // Read the response of HTTP server
+            GSM_IO.write("AT+QHTTPREAD=30\r");
+            resp = WaitOfReaction(300);
+            if (27 != resp) goto no_send;
+            resp = WaitOfReaction(30000);
+            if (1 != resp) goto no_send;
+          }
+        }
+
+        // power off gsm
+        setPowerDown(GSM_MASK);
+
+        uint32_t afileSize = afile.fileSize();
+
+        lfile.close();
+        afile.close();
+
+        if (sd.exists(FILENAME_PPV_LOG) && sd.remove(FILENAME_PPV_LOG)) {
+          if (afileSize > 0) {
+            sd.rename(FILENAME_PPV_AUX, FILENAME_PPV_LOG);
+            goto fail;
+          }
+          sd.remove(FILENAME_PPV_AUX);
+        } else goto fail;
+      } else goto fail;
+    } else goto fail;
+  }
+
+  if (lfile.isOpen()) lfile.close();
+  if (afile.isOpen()) afile.close();
+
+  setPowerDown(SD_MASK & ~pMask);
+  setPowerUp(pMask);
+
+  return true;
+fail:
+  if (lfile.isOpen()) lfile.close();
+  if (afile.isOpen()) afile.close();
+
+  setPowerDown(SD_MASK & ~pMask);
+  setPowerUp(pMask);
+
+  return false;  
+}
+//----------------------------------------------------------------------
+boolean gcSavePPV()
+{
+  if (0==gc_cfg.trigger_level || 0==gc_cfg.trigger_time_number) return false;
+
+  uint32_t pMask = powMask;
+  setPowerUp(SD_MASK);
+
+  filename[FILENAME_MAX_LENGH-3] = 'X';
+  filename[FILENAME_MAX_LENGH-2] = 'Y';
+  filename[FILENAME_MAX_LENGH-1] = 'Z';
+  file.open(filename, O_READ);
+
+  filename[FILENAME_MAX_LENGH-3] = 'T';
+  filename[FILENAME_MAX_LENGH-2] = 'R';
+  filename[FILENAME_MAX_LENGH-1] = 'G';
+  qfile.open(filename, O_READ);
+
+  if (file.isOpen() && qfile.isOpen() && qfile.fileSize() > 0) {
+    uint32_t rtcIni = 0;
+    uint32_t nConf = 0;
+
+    float factor = (1000*gc_cfg.sensitivity)*(pow(2,GC_ADC_BITS+gc_cfg.gain)/GC_ADC_VREF);
+
+    boolean fileOk = true;
+    file.seekSet(50);
+    if (file.read(&rtcIni, sizeof(uint32_t)) != sizeof(uint32_t)) {
+      fileOk = false;
+    } else {
+      // file.seekSet(54);
+      if (file.read(&nConf, sizeof(uint32_t)) != sizeof(uint32_t)) {
+        fileOk = false;
+      }
+    }
+
+    if (fileOk) {
+      // open ppv.log file:
+      boolean lfileOk = true;
+      if (!sd.exists(FILENAME_PPV_LOG)) {
+        lfileOk = lfile.open(FILENAME_PPV_LOG, O_CREAT | O_EXCL | O_TRUNC | O_WRITE);
+      } else {
+        lfileOk = lfile.open(FILENAME_PPV_LOG, O_WRITE | O_APPEND);
+      }
+
+      if (!lfileOk || !lfile.isOpen()) {
+        if (lfile.isOpen()) lfile.close();
+
+        file.close();
+        qfile.close();
+
+        goto fail;
+      }
+
+      uint32_t trg = 0;
+      qfile.seekSet(0);
+      while (qfile.read(&trg, sizeof(uint32_t)) == sizeof(uint32_t)) {
+        trg = nConf - trg;
+        file.seekSet(FILE_HEAD+3*sizeof(uint16_t)*trg);
+
+        uint32_t vmax = 0;
+        uint32_t imax = 0;
+        uint16_t values[3] = { 0, 0, 0};
+        for (uint32_t i = 0; i < gc_cfg.trigger_time_number; i++) {
+          if (file.read(values, 3*sizeof(uint16_t)) != 3*sizeof(uint16_t)) {
+            break;
+          } else {
+            uint32_t
+            value  = (values[0]-GC_ADC0_AZV)*(values[0]-GC_ADC0_AZV);
+            value += (values[1]-GC_ADC0_AZV)*(values[1]-GC_ADC0_AZV);
+            value += (values[2]-GC_ADC0_AZV)*(values[2]-GC_ADC0_AZV);
+
+            if (value > vmax) {
+              vmax = value;
+              imax = i;
+            }
+          }
+        }
+
+        uint32_t rtc = rtcIni+(uint32_t)((trg+imax)*(gc_cfg.tick_time_useg/1000000.0));
+        float ppv = sqrt(vmax)/factor;
+
+        lfile.write((uint8_t*)&rtc, sizeof(uint32_t));
+        lfile.write((uint8_t*)&ppv, sizeof(float));
+      }
+
+      // close ppv.log file:
+      lfile.close();
+    }
+
+    file.close();
+    qfile.close();
+
+    if (!fileOk) goto fail;
+  } else {
+    if (file.isOpen()) file.close();
+    if (qfile.isOpen()) qfile.close();
+
+    goto fail;
+  }
+
+  setPowerDown(SD_MASK & ~pMask);
+  setPowerUp(pMask);
+  return true;
+
+fail:
+  setPowerDown(SD_MASK & ~pMask);
+  setPowerUp(pMask);
+  return false;
+}
+//----------------------------------------------------------------------
+boolean files_close()
+{
+  if (!(gcPlayStat & GC_ST_FILE_OPEN)) {
+    setPowerDown(PGA_MASK|SD_MASK);
+    return true;
+  }
+
+  boolean close_file = true;
+  boolean close_qfile = true;
+
+  if (file.isOpen() && !file.close()) {
+    gc_println(PSTR("error:stop: close file!"));
+    close_file = false;
+  }
+
+  if (qfile.isOpen() && !qfile.close()) {
+    gc_println(PSTR("error:stop: close qfile!"));
+    close_qfile = false;
+  }
+
+  gcPlayStat &= ~GC_ST_FILE_OPEN;
+  setPowerDown(PGA_MASK|SD_MASK);
+  return (close_file && close_qfile);
+}
+
 boolean gcStop()
 {
   if (!(gcPlayStat & GC_ST_STOP)) return false;
+  gcPlayStat &= ~GC_ST_STOP;
 
   if (!(gcPlayStat & GC_ST_FILE_OPEN)) {
-    gcPlayStat &= ~GC_ST_STOP;
+    setPowerDown(PGA_MASK|SD_MASK);
     return true;
   }
 
   // stop adc_play
   adc_play.end();
+  adc_rtc_stop = Teensy3Clock.get();
 
   int8_t wadc = 3;
   while (ADC0_SC1A != adc_config[3] && wadc-- > 0) {
@@ -1188,62 +1738,22 @@ boolean gcStop()
   qfile.timestamp(T_WRITE, year(), month(), day(), hour(), minute(), second());
   qfile.timestamp(T_ACCESS, year(), month(), day(), hour(), minute(), second());
 
-  if (!files_close()) goto fail;
+  boolean aux = files_close();
 
-  setPowerDown(PGA_MASK|SD_MASK);
-  gcPlayStat &= ~GC_ST_STOP;
-  return true;
+  gcSavePPV();
 
-fail:
-  setPowerDown(PGA_MASK|SD_MASK);
-  gcPlayStat &= ~GC_ST_STOP;
-  return false;
-}
-
-boolean files_close()
-{
-  boolean close_file = true;
-  boolean close_qfile = true;
-
-  if (file.isOpen()) {
-    if (file.getWriteError()) {
-      gc_println(PSTR("error:stop: write file!"));
-      if (!file.close()) {
-        gc_println(PSTR("error:stop: close file!"));
-      }
-      close_file = false;
-    }
-    if (!file.close()) {
-      gc_println(PSTR("error:stop: close file!"));
-      close_file = false;
-    }
-  }
-
-  if (qfile.isOpen()) {
-    if (qfile.getWriteError()) {
-      gc_println(PSTR("error:stop: write qfile!"));
-      if (!qfile.close()) {
-        gc_println(PSTR("error:stop: close qfile!"));
-      }
-      close_qfile = false;
-    }
-    if (!qfile.close()) {
-      gc_println(PSTR("error:stop: close qfile!"));
-      close_qfile = false;
-    }
-  }
-
-  gcPlayStat &= ~GC_ST_FILE_OPEN;
-  return (close_file && close_qfile);
+  return aux;
 }
 
 boolean file_cfg()
 {
+  setPowerUp(PGA_MASK|SD_MASK);
+
   // create a new file
-  static char filename[FILENAME_MAX_LENGH+1] = FILENAME_FORMAT;
   filename[FILENAME_MAX_LENGH-3] = 'X';
   filename[FILENAME_MAX_LENGH-2] = 'Y';
   filename[FILENAME_MAX_LENGH-1] = 'Z';
+
   static uint32_t n = 0;
   for (; n < pow(10, FILENAME_MAX_LENGH-(FILENAME_NO_DIGITS+FILENAME_EXT));) {
     for (uint8_t i = 0; i < (FILENAME_MAX_LENGH-(FILENAME_NO_DIGITS+FILENAME_EXT)); i++) {
@@ -1260,34 +1770,51 @@ boolean file_cfg()
       filename[FILENAME_MAX_LENGH-2] = 'R';
       filename[FILENAME_MAX_LENGH-1] = 'G';
 
-      qfile.open(filename, O_CREAT | O_TRUNC | O_WRITE);
-      qfile.timestamp(T_CREATE, year(), month(), day(), hour(), minute(), second());
-      qfile.timestamp(T_WRITE, year(), month(), day(), hour(), minute(), second());
-      qfile.timestamp(T_ACCESS, year(), month(), day(), hour(), minute(), second());
+      if (qfile.open(filename, O_CREAT | O_TRUNC | O_WRITE)) {
+        qfile.timestamp(T_CREATE, year(), month(), day(), hour(), minute(), second());
+        qfile.timestamp(T_WRITE, year(), month(), day(), hour(), minute(), second());
+        qfile.timestamp(T_ACCESS, year(), month(), day(), hour(), minute(), second());
 
-      n++;
-      if (n == pow(10, FILENAME_MAX_LENGH-(FILENAME_NO_DIGITS+FILENAME_EXT))) n = 0;
-      break;
+        n++;
+        if (n == pow(10, FILENAME_MAX_LENGH-(FILENAME_NO_DIGITS+FILENAME_EXT))) n = 0;
+
+        break;
+      } else {
+        file.timestamp(T_CREATE, 1990, month(), day(), hour(), minute(), second());
+        file.timestamp(T_WRITE, 1990, month(), day(), hour(), minute(), second());
+        file.timestamp(T_ACCESS, 1990, month(), day(), hour(), minute(), second());
+        file.close();
+
+        filename[FILENAME_MAX_LENGH-3] = 'X';
+        filename[FILENAME_MAX_LENGH-2] = 'Y';
+        filename[FILENAME_MAX_LENGH-1] = 'Z';
+      }
     }
 
     n++;
     if (n == pow(10, FILENAME_MAX_LENGH-(FILENAME_NO_DIGITS+FILENAME_EXT))) n = 0;
   }
 
-  if (!file.isOpen()) {
-    gc_println(PSTR("log:file open failed"));
+  if (!file.isOpen() || !qfile.isOpen()) {
+    gc_println(PSTR("log:files open failed"));
 
-    file.timestamp(T_CREATE, 1980, month(), day(), hour(), minute(), second());
-    file.timestamp(T_WRITE, 1980, month(), day(), hour(), minute(), second());
-    file.timestamp(T_ACCESS, 1980, month(), day(), hour(), minute(), second());
-    file.close();
+    if (file.isOpen()) {
+      file.timestamp(T_CREATE, 1980, month(), day(), hour(), minute(), second());
+      file.timestamp(T_WRITE, 1980, month(), day(), hour(), minute(), second());
+      file.timestamp(T_ACCESS, 1980, month(), day(), hour(), minute(), second());
+      file.close();
+    }
 
-    qfile.timestamp(T_CREATE, 1980, month(), day(), hour(), minute(), second());
-    qfile.timestamp(T_WRITE, 1980, month(), day(), hour(), minute(), second());
-    qfile.timestamp(T_ACCESS, 1980, month(), day(), hour(), minute(), second());
-    qfile.close();
+    if (qfile.isOpen()) {
+      qfile.timestamp(T_CREATE, 1980, month(), day(), hour(), minute(), second());
+      qfile.timestamp(T_WRITE, 1980, month(), day(), hour(), minute(), second());
+      qfile.timestamp(T_ACCESS, 1980, month(), day(), hour(), minute(), second());
+      qfile.close();
+    }
 
     gcPlayStat &= ~GC_ST_FILE_OPEN;
+    setPowerDown(PGA_MASK|SD_MASK);
+
     return false;
   } else {
     // write uint8_t file format
@@ -1347,7 +1874,6 @@ void adc_play_callback()
 {
   if (adc_play_cnt-- == 0) {
     adc_play_cnt = 0;
-    adc_rtc_stop = Teensy3Clock.get();
     stop_reading();
     return;
   }
@@ -1409,26 +1935,23 @@ void adc_play_callback()
 
 boolean gcStart()
 {
-  if (gcPlayStat & GC_ST_READING) return false;
-
   uint32_t cfg_all = GC_CFG_READ|GC_CFG_ADC|GC_CFG_DMA;
-  if (!((gcCfgStat & cfg_all)==cfg_all)) return false;
+  if ((gcCfgStat & cfg_all)!=cfg_all || (gcPlayStat & GC_ST_READING)) return false;
 
   // restart
   delta = 0; tail = 0; sd_head = 0;
   adc_errors = 0; buffer_errors = 0;
   adc_rtc_stop = 0;
 
+  // trigger
 #if TRIGGER_BY_SOFTWARE == 0
 #elif TRIGGER_BY_SOFTWARE == 1
   quake_min = 0x0000 + (gc_cfg.trigger_level+1);
   quake_max = 0xFFFF - gc_cfg.trigger_level;
 #endif
   quake_head = 0;
-  if (gc_cfg.trigger_level > 0 || gc_cfg.trigger_time_number > 0) adc_play_cnt_quake = adc_play_cnt-1;
+  if (gc_cfg.trigger_level > 0 && gc_cfg.trigger_time_number > 0) adc_play_cnt_quake = adc_play_cnt-1;
   else adc_play_cnt_quake = 0;
-
-  setPowerUp(PGA_MASK|SD_MASK);
 
   // configure file
   if (file_cfg()) { // => gcPlayStat += GC_ST_FILE_OPEN
@@ -1452,21 +1975,14 @@ boolean gcStart()
 
       sd_buffer[sd_head-1] = 61153;
 
-      if (!files_close()) goto fail;
-
-      gc_println(PSTR("error:start: adc_play!"));
-      goto fail;
+      files_close();
+      return false;
     }
 
     gcPlayStat |= GC_ST_READING;
     return true;
-  } else { // gcPlayStat -= GC_ST_FILE_OPEN
-    gc_println(PSTR("error:start: file!"));
-    goto fail;
   }
 
-fail:
-  setPowerDown(PGA_MASK|SD_MASK);
   return false;
 }
 //-----------------------------------------------------------------------

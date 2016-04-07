@@ -4,6 +4,7 @@
 #ifndef GC_CFG_H
 #define GC_CFG_H
 
+#define CFG_VERSION 3
 #define FILE_NAME_SIZE 13
 
 #define MIN_TICK_TIME_USEG 100
@@ -15,7 +16,7 @@ class gcCFG {
 public:
   float sensitivity = 1.0; // V/mm/s
 
-  uint8_t gain = 0;              //  0->1, 1->2, 2->4, 3->8, 4->16, 5->32, 6->6, 7->16
+  uint8_t gain = 0;              //  0->1, 1->2, 2->4, 3->8, 4->16, 5->32, 6->64, 7->128
   uint8_t average = 3;           //  0->4, 1->8, 2->16, 3->32
   uint32_t tick_time_useg = 250; // 4ksps
 
@@ -23,7 +24,7 @@ public:
   uint32_t time_begin_seg = 5;
   uint32_t time_end_seg = 10;
 
-  boolean gps = false;
+  uint8_t gps = false;
 
   uint16_t trigger_level = 0; // 100%
   uint32_t trigger_time_number = 0; // 0 segundos, 4000 == 1 segundo
@@ -67,8 +68,8 @@ public:
     this->gps = gps > 0;
   }
 
-  bool write();
-  bool read();
+  boolean write();
+  boolean read();
   void print();
 
   void set_sensitivity(float sensitivity)
@@ -150,6 +151,9 @@ private:
   char file_name[FILE_NAME_SIZE];
 
   void (*log)(const char*);
+
+  boolean readEEPROM();
+  boolean writeEEPROM();
 };
 
 #endif // GC_CFG_H

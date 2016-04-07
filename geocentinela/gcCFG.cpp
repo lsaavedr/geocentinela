@@ -1,8 +1,57 @@
 #include <stdio.h>
+#include <EEPROM.h>
 
 #include "gcCFG.h"
 
-bool gcCFG::write()
+boolean gcCFG::writeEEPROM()
+{
+  uint32_t address = 0;
+  EEPROM.write(address++, CFG_VERSION);
+
+  // write float sensitivity:
+  EEPROM.put(address, sensitivity);
+  address += sizeof(float);
+
+  // write uint8_t gain:
+  EEPROM.put(address, gain);
+  address += sizeof(uint8_t);
+
+  // write uint8_t average:
+  EEPROM.put(address, average);
+  address += sizeof(uint8_t);
+
+  // write uint32_t tick_time_useg:
+  EEPROM.put(address, tick_time_useg);
+  address += sizeof(uint32_t);
+
+  // write uint8_t time_type:
+  EEPROM.put(address, time_type);
+  address += sizeof(uint8_t);
+
+  // write uint32_t time_begin_seg:
+  EEPROM.put(address, time_begin_seg);
+  address += sizeof(uint32_t);
+
+  // write uint32_t time_end_seg:
+  EEPROM.put(address, time_end_seg);
+  address += sizeof(uint32_t);
+
+  // write gps:
+  EEPROM.put(address, gps);
+  address += sizeof(uint8_t);
+
+  // write uint16_t trigger_level:
+  EEPROM.put(address, trigger_level);
+  address += sizeof(uint16_t);
+
+  // write uint32_t trigger_time_number:
+  EEPROM.put(address, trigger_time_number);
+  address += sizeof(uint32_t);
+
+  return true;
+}
+
+boolean gcCFG::write()
 {
   if (file_cfg.open(file_name, O_CREAT | O_TRUNC | O_WRITE)) {
     file_cfg.timestamp(T_CREATE, year(), month(), day(), hour(), minute(), second());
@@ -28,7 +77,7 @@ bool gcCFG::write()
     file_cfg.write((uint8_t*)&time_end_seg, sizeof(uint32_t));
 
     // write gps:
-    file_cfg.write((uint8_t*)&gps, sizeof(boolean));
+    file_cfg.write((uint8_t*)&gps, sizeof(uint8_t));
 
     // write uint16_t trigger_level:
     file_cfg.write((uint8_t*)&trigger_level, sizeof(uint16_t));
@@ -39,19 +88,78 @@ bool gcCFG::write()
     if (!file_cfg.close()) {
       log(PSTR("GeoCentinelaCFG: file close error"));
       log(file_name);
+
+      writeEEPROM();
       return false;
     }
   } else {
     log(PSTR("GeoCentinelaCFG: file open error"));
     log(file_name);
+
+    writeEEPROM();
     return false;
   }
 
-  return true;
+  return writeEEPROM();
 }
 
-bool gcCFG::read()
+boolean gcCFG::readEEPROM()
 {
+  uint32_t address = 0;
+
+  uint8_t cfg_version = 0;
+  EEPROM.get(address, cfg_version);
+  address += sizeof(uint8_t);
+
+  if (cfg_version == CFG_VERSION) {
+    // read float sensitivity:
+    EEPROM.get(address, sensitivity);
+    address += sizeof(float);
+
+    // read uint8_t gain:
+    EEPROM.get(address, gain);
+    address += sizeof(uint8_t);
+
+    // read uint8_t average:
+    EEPROM.get(address, average);
+    address += sizeof(uint8_t);
+
+    // read uint32_t tick_time_useg:
+    EEPROM.get(address, tick_time_useg);
+    address += sizeof(uint32_t);
+
+    // read uint8_t time_type:
+    EEPROM.get(address, time_type);
+    address += sizeof(uint8_t);
+
+    // read uint32_t time_begin_seg:
+    EEPROM.get(address, time_begin_seg);
+    address += sizeof(uint32_t);
+
+    // read uint32_t time_end_seg:
+    EEPROM.get(address, time_end_seg);
+    address += sizeof(uint32_t);
+
+    // read uint8_t gps:
+    EEPROM.get(address, gps);
+    address += sizeof(uint8_t);
+
+    // read uint16_t trigger_level:
+    EEPROM.get(address, trigger_level);
+    address += sizeof(uint16_t);
+
+    // read uint32_t trigger_time_number:
+    EEPROM.get(address, trigger_time_number);
+    address += sizeof(uint32_t);
+
+    return true;
+  }
+
+  return false;
+}
+
+boolean gcCFG::read()
+{  
   if (file_cfg.open(file_name, O_READ)) {
     // read float sensitivity:
     if (file_cfg.read(&sensitivity, sizeof(float)) != sizeof(float)) {
@@ -60,7 +168,7 @@ bool gcCFG::read()
         log(PSTR("GeoCentinelaCFG: file close error"));
         log(file_name);
       }
-      return false;
+      return readEEPROM();
     }
 
     // read uint8_t gain and average:
@@ -70,7 +178,7 @@ bool gcCFG::read()
         log(PSTR("GeoCentinelaCFG: file close error"));
         log(file_name);
       }
-      return false;
+      return readEEPROM();
     } else {
       average = gain & 0xf;
       gain = gain >> 4;
@@ -83,7 +191,7 @@ bool gcCFG::read()
         log(PSTR("GeoCentinelaCFG: file close error"));
         log(file_name);
       }
-      return false;
+      return readEEPROM();
     }
 
     // read uint8_t time_type:
@@ -93,7 +201,7 @@ bool gcCFG::read()
         log(PSTR("GeoCentinelaCFG: file close error"));
         log(file_name);
       }
-      return false;
+      return readEEPROM();
     }
 
     // read uint32_t time_begin_seg:
@@ -103,7 +211,7 @@ bool gcCFG::read()
         log(PSTR("GeoCentinelaCFG: file close error"));
         log(file_name);
       }
-      return false;
+      return readEEPROM();
     }
 
     // read uint32_t time_end_seg:
@@ -113,17 +221,17 @@ bool gcCFG::read()
         log(PSTR("GeoCentinelaCFG: file close error"));
         log(file_name);
       }
-      return false;
+      return readEEPROM();
     }
 
     // read gps:
-    if (file_cfg.read(&gps, sizeof(boolean)) != sizeof(boolean)) {
+    if (file_cfg.read(&gps, sizeof(uint8_t)) != sizeof(uint8_t)) {
       log(PSTR("GeoCentinelaCFG: gps"));
       if (!file_cfg.close()) {
         log(PSTR("GeoCentinelaCFG: file close error"));
         log(file_name);
       }
-      return false;
+      return readEEPROM();
     }
 
     // read uint16_t trigger_level:
@@ -133,7 +241,7 @@ bool gcCFG::read()
         log(PSTR("GeoCentinelaCFG: file close error"));
         log(file_name);
       }
-      return false;
+      return readEEPROM();
     }
 
     // read uint32_t trigger_time_number:
@@ -143,23 +251,24 @@ bool gcCFG::read()
         log(PSTR("GeoCentinelaCFG: file close error"));
         log(file_name);
       }
-      return false;
+      return readEEPROM();
     }
 
     if (!file_cfg.close()) {
       log(PSTR("GeoCentinelaCFG: file close error"));
       log(file_name);
-      return false;
+      return readEEPROM();
     }
 
     file_cfg.timestamp(T_ACCESS, year(), month(), day(), hour(), minute(), second());
   } else {
     log(PSTR("GeoCentinelaCFG: file open error"));
     log(file_name);
-    return false;
+
+    return readEEPROM();
   }
 
-  return true;
+  return writeEEPROM();
 }
 
 void gcCFG::print()

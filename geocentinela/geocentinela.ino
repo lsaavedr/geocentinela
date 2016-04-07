@@ -1,4 +1,4 @@
-#include <XBeeNG.h>
+#include <EEPROM.h>
 
 #include <IntervalTimer.h>
 
@@ -16,10 +16,7 @@ void start_reading()
   noInterrupts();
   if (LOW == digitalRead(PIN_USB)) {
     attachInterrupt(PIN_USB, stop_reading, RISING);
-    gcPlayStat |= GC_ST_PLAY;
-
-    gcPlayStat &= ~GC_ST_CONFIG;
-    setPowerDown(SD_MASK);
+    gcPlayStat = GC_ST_PLAY;
   }
   interrupts();
 }
@@ -32,10 +29,8 @@ void stop_reading()
 
   if (HIGH == digitalRead(PIN_USB)) {
     attachInterrupt(PIN_USB, start_reading, FALLING);
-
     gcPlayStat |= GC_ST_CONFIG;
-    setPowerUp(SD_MASK);
-  } else gcPlayStat &= ~GC_ST_CONFIG;
+  }
   interrupts();
 }
 
@@ -77,10 +72,7 @@ void setup()
   delay(100);
 
   if (HIGH == digitalRead(PIN_USB)) {
-    attachInterrupt(PIN_USB, start_reading, FALLING);
-
-    gcPlayStat |= GC_ST_CONFIG;
-    setPowerUp(SD_MASK);
+    stop_reading();
   } else {
     start_reading();
   }
@@ -92,6 +84,8 @@ void loop()
     if (gcPlayStat & GC_ST_PLAY) {
       gcPlayStat &= ~GC_ST_PLAY;
 
+      setPowerDown(SD_MASK);
+
       adc_play_cnt = 0;
       switch (gc_cfg.time_type) {
         case 0: {
@@ -102,9 +96,8 @@ void loop()
         } break;
       }
 
-      if (adc_play_cnt == 1) {
+      if (adc_play_cnt <= 1) {
         stop_reading();
-        gcPlayStat &= ~GC_ST_STOP;
       } else if (!gcStart()) {
         stop_reading();
       }
@@ -136,30 +129,32 @@ void loop()
     }
 
     if (gcPlayStat & GC_ST_STOP) {
-      if ((gcPlayStat & GC_ST_CONFIG) == 0) {
-        gcStop();
+      gcStop();
+      if (!(gcPlayStat & GC_ST_CONFIG)) {
         switch (gc_cfg.time_type) {
           case 0: {
             detachInterrupt(PIN_USB);
             deep_sleep(); // wake only if PIN_USB are HIGH:
-            attachInterrupt(PIN_USB, start_reading, FALLING);
-            gcPlayStat |= GC_ST_CONFIG;
-            setPowerUp(SD_MASK);
+            stop_reading();
           } break;
           case 1: {
-            gcPlayStat |= GC_ST_PLAY;
+            start_reading();
           } break;
         }
-      } else {
-        gcStop();
-        setPowerUp(SD_MASK);
       }
+      gcPlayStat &= ~GC_ST_STOP;
     }
   }
 
   uint8_t cmd;
   uint32_t lcmd;
   while (HIGH == digitalRead(PIN_USB)) {
+    if (gcPlayStat & GC_ST_CONFIG) {
+      gcPlayStat = ~GC_ST_CONFIG;
+
+      setPowerUp(SD_MASK);
+    }
+
     cmd = 0;
     lcmd = (uint32_t)Serial.available();
 
@@ -252,7 +247,7 @@ void loop()
               gc_println(PSTR("error:loop:r: remove file data!"));
               gc_cmd('r');
             }
-            if ((powMaskOld & SD_MASK) == 0) setPowerDown(SD_MASK);
+            if ((powMaskOld & SD_MASK)== 0) setPowerDown(SD_MASK);
             gc_print(PSTR("rm "));
             Serial.println((char*)message);
             gc_cmd('r');
@@ -292,6 +287,26 @@ void loop()
                 if (lcmd >= 3) {
                   uint32_t tk = (uint32_t)Serial.parseInt() % SEG_A_DAY;
                   gc_cfg.set_time_end(tk % SEG_A_DAY);
+
+                  write_cfg = true;
+                }
+              } break;
+              case 't': {
+                if (lcmd >= 3) {
+                  cmd = Serial.read();
+                  gc_cfg.set_time_type(cmd);
+
+                  write_cfg = true;
+                }
+              } break;
+              case 's': {
+                if (lcmd >= 6) {
+                  uint32_t tick_time_useg;
+                  ((uint8_t*)&tick_time_useg)[0] = Serial.read();
+                  ((uint8_t*)&tick_time_useg)[1] = Serial.read();
+                  ((uint8_t*)&tick_time_useg)[2] = Serial.read();
+                  ((uint8_t*)&tick_time_useg)[3] = Serial.read();
+                  gc_cfg.set_tick_time_useg(tick_time_useg);
 
                   write_cfg = true;
                 }
@@ -381,26 +396,6 @@ void loop()
                   reload_adc_dma = true;
                 }
               } break;
-              case 's': {
-                if (lcmd >= 6) {
-                  uint32_t tick_time_useg;
-                  ((uint8_t*)&tick_time_useg)[0] = Serial.read();
-                  ((uint8_t*)&tick_time_useg)[1] = Serial.read();
-                  ((uint8_t*)&tick_time_useg)[2] = Serial.read();
-                  ((uint8_t*)&tick_time_useg)[3] = Serial.read();
-                  gc_cfg.set_tick_time_useg(tick_time_useg);
-
-                  write_cfg = true;
-                }
-              } break;
-              case 't': {
-                if (lcmd >= 3) {
-                  cmd = Serial.read();
-                  gc_cfg.set_time_type(cmd);
-
-                  write_cfg = true;
-                }
-              } break;
               case 'u': {
                 if (lcmd >= 6) {
                   uint32_t time_begin_seg;
@@ -447,8 +442,11 @@ void loop()
               case 'w': {
                 if (lcmd >= 3) {
                   cmd = (uint8_t)Serial.read();
-                  if ((cmd & POWER_UP_MASK) > 0) setPowerUp(cmd);
-                  else setPowerDown(cmd);
+                  if ((cmd & POWER_UP_MASK) > 0) {
+                    setPowerUp(cmd);
+                  } else {
+                    setPowerDown(cmd);
+                  }
                 }
               } break;
               case 'y': {
@@ -522,23 +520,14 @@ void loop()
           Serial.println(powMask, HEX);
         } break;
         case 'x': {
-          if (xbeeBD == 0) break;
-
-          uint32_t powMaskOld = powMask;
-          setPowerUp(XBEE_MASK);
-          while (true) {
-            while (Serial.available()) {
-              cmd = Serial.read();
-              if (cmd == 'x') goto xout;
-              XBEE_IO.write(cmd);
-            }
-            while (XBEE_IO.available()) {
-              cmd = XBEE_IO.read();
-              Serial.write(cmd);
-            }
+          if (gcSendPPV()) {
+            Serial.println("send OK");
+          } else {
+            Serial.println("send not OK");
           }
-xout:
-          if ((powMaskOld & XBEE_MASK) == 0) setPowerDown(XBEE_MASK);
+        } break;
+        case 'z': {
+          gcSavePPV();
         } break;
         default: {
           gc_println(PSTR("bad cmd!"));
