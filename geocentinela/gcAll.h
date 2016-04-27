@@ -43,8 +43,8 @@ volatile uint16_t
   adc_ring_buffer[GC_ADC_RING_SIZE];
 
 volatile uint32_t adc_config[14] = {
-  ADC_SC1_ADCH(GC_ADC0_A2), // GC_ADC0_A4
-  ADC_SC1_ADCH(GC_ADC0_A5), // GC_ADC0_A6
+  ADC_SC1_ADCH(GC_ADC0_A2),
+  ADC_SC1_ADCH(GC_ADC0_A5),
   ADC_SC1_ADCH(GC_ADC0_A9),
   ADC_SC1_ADCH(31), // stop=0b11111=31
   ADC_SC1_ADCH(GC_ADC0_A10), // read battery state
@@ -72,17 +72,17 @@ uint16_t sd_buffer[GC_SD_BUFFER_SIZE];
 // Create an XBee object at the top of your sketch
 #define XBEE_SLEEP_TIME 10000
 
-#define XBEE_nSLEEP_ON 20 // 9
-#define XBEE_SLEEP_RQ   9 // 6
-#define XBEE_nRESET    06 // 5
+#define XBEE_nSLEEP_ON 20
+#define XBEE_SLEEP_RQ   9
+#define XBEE_nRESET    06
 
 #define XBEE_IO Serial3
-#define XBEE_RX 07
-#define XBEE_TX  8
+#define XBEE_RX  8
+#define XBEE_TX 07
 volatile uint32_t xbeeBD = 0;
 
-#define XBEE_nRTS 15 // 4
-#define XBEE_nCTS 21 // 3
+#define XBEE_nRTS 15
+#define XBEE_nCTS 21
 
 #define GSM_IO XBEE_IO
 #define GSM_RX XBEE_RX
@@ -149,9 +149,9 @@ char filename[FILENAME_MAX_LENGH+1] = FILENAME_FORMAT;
 #define PIN_USB 30
 #define WAKE_USB PIN_30
 //--------------------------------------------------
-#define SDX_POW 03 // 19 // 3.3V
+#define SDX_POW 03 // 3.3V
 #define PGA_POW 22 // 5Va
-#define EXT_POW 02 // 21 // 3.3VP
+#define EXT_POW 02 // 3.3VP
 #define XBEE_MASK 0b01000
 #define SD_MASK   0b00100
 #define PGA_MASK  0b00010
@@ -160,16 +160,18 @@ char filename[FILENAME_MAX_LENGH+1] = FILENAME_FORMAT;
 #define POWER_UP_MASK 0b100000
 volatile uint8_t powMask = 0;
 //--------------------------------------------------
-#define GAIN_CS 05 // 15
-#define GAIN_A0 18 // 16
+#define GAIN_CS 05
+#define GAIN_A0 18
 #define GAIN_A1 14
 #define GAIN_A2 17
 //--------------------------------------------------
 TinyGPS gps;
 #define HOUR_OFFSET -3
 #define GPS_RTC_SYNC_TIME 5*60*1000 // 5min
-#define GPS_PPS 04 // 2
+#define GPS_PPS 04
 #define GPS_IO Serial1
+#define GPS_RX 00
+#define GPS_TX 01
 //--------------------------------------------------
 #define LOG_TIMEOUT 1000
 #define SEG_A_DAY 86400
@@ -1219,22 +1221,20 @@ uint32_t sleep_chrono()
   uint32_t dseg = gc_cfg.time_end_seg;
 
   // sending triggers:
-  if (gc_cfg.trigger_level > 0 && gc_cfg.trigger_time_number > 0) {
+  if (gc_cfg.ppv_send_time > 0) {
     uint32_t time_ini = Teensy3Clock.get();
-    int32_t rtc_alarm_orig = lp_cfg.rtc_alarm;
-
-    int32_t delta_sleep = 600; // 10min: tiempo de cada intento
 
     boolean sended = false;
-    int32_t rtc_alarm = rtc_alarm_orig;
+    int32_t rtc_alarm = lp_cfg.rtc_alarm;
 
-    while ((rtc_alarm - delta_sleep) > 0 && !sended) {
+    // gc_cfg.ppv_send_time < 86400
+    while ((rtc_alarm - (int32_t)gc_cfg.ppv_send_time) > 0 && !sended) {
       uint32_t t_ini = Teensy3Clock.get();
       if (HIGH == digitalRead(PIN_USB)) return 0;
       sended = gcSendPPV();
       uint32_t t_end = Teensy3Clock.get();
 
-      lp_cfg.rtc_alarm = delta_sleep - (t_end-t_ini);
+      lp_cfg.rtc_alarm = gc_cfg.ppv_send_time - (int32_t)(t_end-t_ini);
       if (lp_cfg.rtc_alarm > 0) {
         uint32_t powMaskOld = powMask;
         setPowerDown(SD_MASK|XBEE_MASK|PGA_MASK|EXT_MASK);
@@ -1247,13 +1247,12 @@ uint32_t sleep_chrono()
       }
 
       uint32_t time_end = Teensy3Clock.get();
-      rtc_alarm = rtc_alarm_orig - (time_end-time_ini);
+      rtc_alarm = lp_cfg.rtc_alarm - (int32_t)(time_end-time_ini);
     }
     lp_cfg.rtc_alarm = rtc_alarm;
   }
 
   if (HIGH == digitalRead(PIN_USB)) return 0;
-
   // sleep
   if (lp_cfg.rtc_alarm > 0) {
     uint32_t powMaskOld = powMask;
@@ -1316,22 +1315,20 @@ uint32_t sleep_daily()
   }
 
   // sending triggers:
-  if (gc_cfg.trigger_level > 0 && gc_cfg.trigger_time_number > 0) {
+  if (gc_cfg.ppv_send_time > 0) {
     uint32_t time_ini = Teensy3Clock.get();
-    int32_t rtc_alarm_orig = lp_cfg.rtc_alarm;
-
-    int32_t delta_sleep = 3600; // 60min: tiempo de cada intento
 
     boolean sended = false;
-    int32_t rtc_alarm = rtc_alarm_orig;
+    int32_t rtc_alarm = lp_cfg.rtc_alarm;
 
-    while ((rtc_alarm - delta_sleep) > 0 && !sended) {
+    // gc_cfg.ppv_send_time < 86400
+    while ((rtc_alarm - (int32_t)gc_cfg.ppv_send_time) > 0 && !sended) {
       uint32_t t_ini = Teensy3Clock.get();
       if (HIGH == digitalRead(PIN_USB)) return 0;
       sended = gcSendPPV();
       uint32_t t_end = Teensy3Clock.get();
 
-      lp_cfg.rtc_alarm = delta_sleep - (t_end-t_ini);
+      lp_cfg.rtc_alarm = gc_cfg.ppv_send_time - (int32_t)(t_end-t_ini);
       if (lp_cfg.rtc_alarm > 0) {
         uint32_t powMaskOld = powMask;
         setPowerDown(SD_MASK|XBEE_MASK|PGA_MASK|EXT_MASK);
@@ -1344,13 +1341,12 @@ uint32_t sleep_daily()
       }
 
       uint32_t time_end = Teensy3Clock.get();
-      rtc_alarm = rtc_alarm_orig - (time_end-time_ini);
+      rtc_alarm = lp_cfg.rtc_alarm - (int32_t)(time_end-time_ini);
     }
     lp_cfg.rtc_alarm = rtc_alarm;
   }
 
   if (HIGH == digitalRead(PIN_USB)) return 0;
-
   // sleep
   if (lp_cfg.rtc_alarm > 0) {
     uint32_t powMaskOld = powMask;
@@ -1460,8 +1456,8 @@ boolean gcSendPPV()
 
           memset(url, 0, url_max_size);
           snprintf(url, url_max_size,
-            "http://geobot.timining.cl/geobottest?HID=%X&MHID=%X&MLID=%X&LID=%X&TS=%X&PPV=%s",
-//            "http://www.antrax.de/WebServices/responder.php?HID=%X&MHID=%X&MLID=%X&LID=%X&TS=%X&PPV=%s",
+            "http://geobot.timining.cl/geobot?HID=%X&MHID=%X&MLID=%X&LID=%X&TS=%X&PPV=%s",
+//            "http://geobot.timining.cl/geobottest?HID=%X&MHID=%X&MLID=%X&LID=%X&TS=%X&PPV=%s",
             SIM_UIDH, SIM_UIDMH, SIM_UIDML, SIM_UIDL,
             rtc, ppv_str);
 
@@ -1547,7 +1543,7 @@ fail:
 //----------------------------------------------------------------------
 boolean gcSavePPV()
 {
-  if (0==gc_cfg.trigger_level || 0==gc_cfg.trigger_time_number) return false;
+  if (0==gc_cfg.trigger_level || 0==gc_cfg.trigger_time_number || 0==gc_cfg.ppv_send_time) return false;
 
   uint32_t pMask = powMask;
   setPowerUp(SD_MASK);

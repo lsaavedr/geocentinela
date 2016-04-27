@@ -335,6 +335,14 @@ void loop()
 #endif
                 }
               } break;
+              case 'h': {
+                if (lcmd >= 3) {
+                  uint32_t ppv_send_time = (uint32_t)Serial.parseInt();
+                  gc_cfg.set_ppv_send_time(ppv_send_time);
+
+                  write_cfg = true;
+                }                
+              } break;
               case 'o': {
                 if (lcmd >= 3) {
                   cmd = Serial.read();
@@ -520,14 +528,16 @@ void loop()
           Serial.println(powMask, HEX);
         } break;
         case 'x': {
-          if (gcSendPPV()) {
-            Serial.println("send OK");
-          } else {
-            Serial.println("send not OK");
-          }
+          gcSavePPV();
         } break;
         case 'z': {
-          gcSavePPV();
+          if (gcSendPPV()) {
+            gc_print("send OK:");
+            gc_println(filename);
+          } else {
+            gc_print("send not OK:");
+            gc_println(filename);
+          }
         } break;
         default: {
           gc_println(PSTR("bad cmd!"));

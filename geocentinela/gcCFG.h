@@ -4,7 +4,7 @@
 #ifndef GC_CFG_H
 #define GC_CFG_H
 
-#define CFG_VERSION 3
+#define CFG_VERSION 4
 #define FILE_NAME_SIZE 13
 
 #define MIN_TICK_TIME_USEG 100
@@ -28,6 +28,8 @@ public:
 
   uint16_t trigger_level = 0; // 100%
   uint32_t trigger_time_number = 0; // 0 segundos, 4000 == 1 segundo
+
+  uint32_t ppv_send_time = 3600; // < 86400
 
   static void gcCmd(uint8_t* cmd, uint8_t n)
   {
@@ -56,6 +58,13 @@ public:
   {
     strcpy_P(this->file_name, file_name);
     this->log = gcPrintln;
+  }
+
+  void set_ppv_send_time(uint32_t ppv_send_time)
+  {
+    if (ppv_send_time >= 86400) return;
+
+    this->ppv_send_time = ppv_send_time;
   }
 
   void toggle_gps()
