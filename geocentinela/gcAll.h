@@ -1222,20 +1222,22 @@ uint32_t sleep_chrono()
 
   // sending triggers:
   if (gc_cfg.ppv_send_time > 0) {
-    uint32_t time_ini = Teensy3Clock.get();
+    const uint32_t time_ini = Teensy3Clock.get();
+    const int32_t rtc_alarm_orig = lp_cfg.rtc_alarm;
 
     boolean sended = false;
-    int32_t rtc_alarm = lp_cfg.rtc_alarm;
+    int32_t rtc_alarm = rtc_alarm_orig;
 
     // gc_cfg.ppv_send_time < 86400
-    while ((rtc_alarm - (int32_t)gc_cfg.ppv_send_time) > 0 && !sended) {
+    while ((rtc_alarm > (int32_t)gc_cfg.ppv_send_time) && !sended) {
       uint32_t t_ini = Teensy3Clock.get();
       if (HIGH == digitalRead(PIN_USB)) return 0;
       sended = gcSendPPV();
       uint32_t t_end = Teensy3Clock.get();
 
-      lp_cfg.rtc_alarm = gc_cfg.ppv_send_time - (int32_t)(t_end-t_ini);
-      if (lp_cfg.rtc_alarm > 0) {
+      if (gc_cfg.ppv_send_time > (t_end-t_ini)) {
+        lp_cfg.rtc_alarm = gc_cfg.ppv_send_time - (t_end-t_ini);
+
         uint32_t powMaskOld = powMask;
         setPowerDown(SD_MASK|XBEE_MASK|PGA_MASK|EXT_MASK);
         lp.DeepSleep(&lp_cfg);
@@ -1247,7 +1249,7 @@ uint32_t sleep_chrono()
       }
 
       uint32_t time_end = Teensy3Clock.get();
-      rtc_alarm = lp_cfg.rtc_alarm - (int32_t)(time_end-time_ini);
+      rtc_alarm = rtc_alarm_orig - (int32_t)(time_end-time_ini);
     }
     lp_cfg.rtc_alarm = rtc_alarm;
   }
@@ -1316,20 +1318,22 @@ uint32_t sleep_daily()
 
   // sending triggers:
   if (gc_cfg.ppv_send_time > 0) {
-    uint32_t time_ini = Teensy3Clock.get();
+    const uint32_t time_ini = Teensy3Clock.get();
+    const int32_t rtc_alarm_orig = lp_cfg.rtc_alarm;
 
     boolean sended = false;
-    int32_t rtc_alarm = lp_cfg.rtc_alarm;
+    int32_t rtc_alarm = rtc_alarm_orig;
 
     // gc_cfg.ppv_send_time < 86400
-    while ((rtc_alarm - (int32_t)gc_cfg.ppv_send_time) > 0 && !sended) {
+    while ((rtc_alarm > (int32_t)gc_cfg.ppv_send_time) && !sended) {
       uint32_t t_ini = Teensy3Clock.get();
       if (HIGH == digitalRead(PIN_USB)) return 0;
       sended = gcSendPPV();
       uint32_t t_end = Teensy3Clock.get();
 
-      lp_cfg.rtc_alarm = gc_cfg.ppv_send_time - (int32_t)(t_end-t_ini);
-      if (lp_cfg.rtc_alarm > 0) {
+      if (gc_cfg.ppv_send_time > (t_end-t_ini)) {
+        lp_cfg.rtc_alarm = gc_cfg.ppv_send_time - (t_end-t_ini);
+
         uint32_t powMaskOld = powMask;
         setPowerDown(SD_MASK|XBEE_MASK|PGA_MASK|EXT_MASK);
         lp.DeepSleep(&lp_cfg);
@@ -1341,7 +1345,7 @@ uint32_t sleep_daily()
       }
 
       uint32_t time_end = Teensy3Clock.get();
-      rtc_alarm = lp_cfg.rtc_alarm - (int32_t)(time_end-time_ini);
+      rtc_alarm = rtc_alarm_orig - (int32_t)(time_end-time_ini);
     }
     lp_cfg.rtc_alarm = rtc_alarm;
   }
