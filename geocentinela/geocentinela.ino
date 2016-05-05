@@ -187,12 +187,13 @@ void loop()
           gc_cmd('r');
         } break;
         case 'l': { // ls command
-          uint32_t powMaskOld = powMask;
+          uint32_t pMask = powMask;
           setPowerUp(SD_MASK);
           gc_cmd('l');
           sd.ls(LS_DATE | LS_SIZE);
           gc_cmd('r');
-          if ((powMaskOld & SD_MASK) == 0) setPowerDown(SD_MASK);
+          setPowerDown(~pMask);
+          setPowerUp(pMask);
         } break;
         case 'g': { // get a file
           cmd = 0;
@@ -204,7 +205,7 @@ void loop()
           filename[cmd] = '\0';
 
           if (cmd > 0) {
-            uint32_t powMaskOld = powMask;
+            uint32_t pMask = powMask;
             setPowerUp(SD_MASK);
             SdFile fileData;
             if (!fileData.open((char*)filename, O_READ)) {
@@ -225,7 +226,8 @@ void loop()
               gc_cmd(eof_cmd, 2);
               gc_cmd('r');
             }
-            if ((powMaskOld & SD_MASK) == 0) setPowerDown(SD_MASK);
+            setPowerDown(~pMask);
+            setPowerUp(pMask);
           } else {
             gc_println(PSTR("error:loop:g: empty filename!"));
             gc_cmd('r');
@@ -241,13 +243,15 @@ void loop()
           Serial.println((char*)message);
 
           if (cmd > 0) {
-            uint32_t powMaskOld = powMask;
+            uint32_t pMask = powMask;
             setPowerUp(SD_MASK);
             if (!sd.remove((char*)message)) {
               gc_println(PSTR("error:loop:r: remove file data!"));
               gc_cmd('r');
             }
-            if ((powMaskOld & SD_MASK)== 0) setPowerDown(SD_MASK);
+            setPowerDown(~pMask);
+            setPowerUp(pMask);
+
             gc_print(PSTR("rm "));
             Serial.println((char*)message);
             gc_cmd('r');
@@ -527,8 +531,33 @@ void loop()
         case 'p': {
           Serial.println(powMask, HEX);
         } break;
+        case 'w': {
+          uint32_t pMask = powMask;
+          setPowerUp(GSM_MASK);
+          uint8_t scmd = 0;
+          while (true) {
+            while (Serial.available()) {
+              scmd = Serial.read();
+              if (scmd == '@')  goto out_w;
+              if (scmd == '|') {
+                if (ntpSync()) Serial.println("ntp!");
+                else Serial.println("!ntp");
+                goto out_w;
+              }
+              GSM_IO.write(scmd);
+            }
+            while (GSM_IO.available()) {
+              Serial.write(GSM_IO.read());
+            }
+          }
+out_w:
+          setPowerDown(~pMask);
+          setPowerUp(pMask);
+        } break;
         case 'x': {
+          Serial.print("filename:");
           gcSavePPV();
+          Serial.println(filename);
         } break;
         case 'z': {
           if (gcSendPPV()) {
@@ -545,10 +574,11 @@ void loop()
       }
 
       if (write_cfg) {
-        uint32_t powMaskOld = powMask;
+        uint32_t pMask = powMask;
         setPowerUp(SD_MASK);
         gc_cfg.write();
-        if ((powMaskOld & SD_MASK) == 0) setPowerDown(SD_MASK);
+        setPowerDown(~pMask);
+        setPowerUp(pMask);
       }
 
       if (reload_adc_dma) {

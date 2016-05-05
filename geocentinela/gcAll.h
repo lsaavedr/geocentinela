@@ -90,6 +90,9 @@ volatile uint32_t xbeeBD = 0;
 #define GSM_W1 XBEE_nCTS
 #define GSM_BUFFER_SIZE 256
 char GSM_string[GSM_BUFFER_SIZE];
+#define NTP1 "3.cl.pool.ntp.org"
+#define NTP2 "3.south-america.pool.ntp.org"
+#define NTP3 "2.south-america.pool.ntp.org"
 //--------------------------------------------------
 SdFile qfile;
 #define QUAKE_LIST_LENGTH 0x100
@@ -199,7 +202,7 @@ void cfgRTC()
 void setPowerDown(uint8_t mask)
 {
   if ((mask & GSM_MASK) > 0) {
-    if ((powMask & GSM_MASK) == 0) goto out_gsm;
+    if (!(powMask & GSM_MASK)) goto out_gsm;
 
     // clear serial line
     GSM_IO.flush();
@@ -216,7 +219,7 @@ void setPowerDown(uint8_t mask)
 out_gsm:
 
   if ((mask & XBEE_MASK) > 0) {
-    if ((powMask & XBEE_MASK) == 0) goto out_xbee;
+    if (!(powMask & XBEE_MASK)) goto out_xbee;
 
     digitalWrite(XBEE_SLEEP_RQ, HIGH);
     uint32_t stime = millis();
@@ -229,7 +232,7 @@ out_gsm:
 
     XBEE_IO.end();
 
-    if ((powMask & SD_MASK) == 0) {
+    if (!(powMask & SD_MASK)) {
       digitalWrite(SDX_POW, LOW);
       digitalWrite(XBEE_SLEEP_RQ, LOW);
       digitalWrite(XBEE_nRESET, LOW);
@@ -240,14 +243,14 @@ out_gsm:
 out_xbee:
 
   if ((mask & SD_MASK) > 0) {
-    if ((powMask & SD_MASK) == 0) goto out_sd;
+    if (!(powMask & SD_MASK)) goto out_sd;
 
     while (sd.card()->isBusy()); delay(1000);
     pinMode(SD_CS, OUTPUT); digitalWrite(SD_CS, LOW);
     pinMode(SD_SCK, OUTPUT); digitalWrite(SD_SCK, LOW);
     pinMode(SD_MOSI, OUTPUT); digitalWrite(SD_MOSI, LOW);
 
-    if ((powMask & XBEE_MASK) == 0) {
+    if (!(powMask & XBEE_MASK)) {
       digitalWrite(SDX_POW, LOW);
       digitalWrite(XBEE_SLEEP_RQ, LOW);
       digitalWrite(XBEE_nRESET, LOW);
@@ -258,7 +261,7 @@ out_xbee:
 out_sd:
 
   if ((mask & PGA_MASK) > 0) {
-    if ((powMask & PGA_MASK) == 0) goto out_pga;
+    if (!(powMask & PGA_MASK)) goto out_pga;
 
     digitalWrite(GAIN_CS, LOW);
     digitalWrite(PGA_POW, LOW);
@@ -267,7 +270,7 @@ out_sd:
 out_pga:
 
   if ((mask & EXT_MASK) > 0) {
-    if ((powMask & EXT_MASK) == 0) goto out_ext;
+    if (!(powMask & EXT_MASK)) goto out_ext;
 
     digitalWrite(EXT_POW, LOW);
     powMask &= ~EXT_MASK;
@@ -280,7 +283,7 @@ out_ext:
 void setPowerUp(uint8_t mask)
 {
   if ((mask & GSM_MASK) > 0) {
-    if ((powMask & GSM_MASK) > 0) goto out_gsm;
+    if (powMask & GSM_MASK) goto out_gsm;
 
     pinMode(GSM_W1, OUTPUT);
     digitalWrite(GSM_W1, HIGH);
@@ -394,7 +397,7 @@ gsm_fail:
 out_gsm:
 
   if ((mask & XBEE_MASK) > 0) {
-    if ((powMask & XBEE_MASK) > 0) goto out_xbee;
+    if (powMask & XBEE_MASK) goto out_xbee;
 
     if (xbeeBD != 0) {
       XBEE_IO.begin(xbeeBD);
@@ -421,7 +424,7 @@ out_gsm:
 out_xbee:
 
   if ((mask & SD_MASK) > 0) {
-    if ((powMask & SD_MASK) > 0) goto out_sd;
+    if (powMask & SD_MASK) goto out_sd;
 
     digitalWrite(SDX_POW, HIGH); delay(500);
     ADC0_SC1A = adc_config[3]; // revisar pq es necesario...
@@ -437,7 +440,7 @@ out_xbee:
 
     powMask |= SD_MASK;
 
-    if ((powMask & XBEE_MASK) == 0) {// hibernate xbee
+    if (!(powMask & XBEE_MASK)) {// hibernate xbee
       setPowerUp(XBEE_MASK);
       setPowerDown(XBEE_MASK);
     }
@@ -445,7 +448,7 @@ out_xbee:
 out_sd:
 
   if ((mask & PGA_MASK) > 0) {
-    if ((powMask & PGA_MASK) > 0) goto out_pga;
+    if (powMask & PGA_MASK) goto out_pga;
 
     digitalWrite(PGA_POW, HIGH); delay(200);
 
@@ -455,7 +458,7 @@ out_sd:
 out_pga:
 
   if ((mask & EXT_MASK) > 0) {
-    if ((powMask & EXT_MASK) > 0) goto out_ext;
+    if (powMask & EXT_MASK) goto out_ext;
 
     digitalWrite(EXT_POW, HIGH); delay(200);
 
@@ -587,7 +590,7 @@ void setPGA(uint8_t gain)
 {
   gc_cfg.set_gain(gain);
 
-  if ((powMask & PGA_MASK) == 0) return;
+  if (!(powMask & PGA_MASK)) return;
 
   digitalWrite(GAIN_CS, LOW);
   switch (gain) {
@@ -711,7 +714,7 @@ void cfgXBEE()
   };
 
   setPowerUp(XBEE_MASK);
-  if ((powMask & XBEE_MASK) == 0) return;
+  if (!(powMask & XBEE_MASK)) return;
 
   uint8_t loop_max = 3;
   for (int8_t i = 8; i >= 0 && xbeeBD==0; i--) {
@@ -880,7 +883,7 @@ boolean cfgADC()
   }
   ADC0_SC3 = sc3;
 
-  uint32_t powMaskOld = powMask;
+  uint32_t pMask = powMask;
 
   PMC_REGSC |= PMC_REGSC_BGBE;
   setPowerUp(PGA_MASK);
@@ -979,7 +982,8 @@ boolean cfgADC()
   ADC1_SC1A = ADC_SC1_ADCH(0b11111);
 #endif
 
-  if ((powMaskOld & PGA_MASK)==0) setPowerDown(PGA_MASK);
+  setPowerDown(~pMask);
+  setPowerUp(pMask);
   PMC_REGSC &= ~PMC_REGSC_BGBE;
 
   gcCfgStat |= GC_CFG_ADC;
@@ -1106,7 +1110,7 @@ float getTemp()
   clearDMA();
 
   // Se prende el voltage de referencia
-  uint32_t powMaskOld = powMask;
+  uint32_t pMask = powMask;
   setPowerUp(PGA_MASK);
 
   // Se lee la temperatura
@@ -1123,7 +1127,8 @@ float getTemp()
   ADC0_SC1A = adc_config[3];
 
   // Si estaba apagado el PGA se apaga:
-  if ((powMaskOld & PGA_MASK) == 0) setPowerDown(PGA_MASK);
+  setPowerDown(~pMask);
+  setPowerUp(pMask);
 
   // se reconecta el DMA
   cfgDMA();
@@ -1140,7 +1145,7 @@ float getVBat()
   clearDMA();
 
   // Se prende el voltage de referencia
-  uint32_t powMaskOld = powMask;
+  uint32_t pMask = powMask;
   setPowerUp(PGA_MASK);
 
   // Se lee el votaje de la bateria
@@ -1157,7 +1162,8 @@ float getVBat()
   ADC0_SC1A = adc_config[3];
 
   // Si estaba apagado el PGA se apaga:
-  if ((powMaskOld & PGA_MASK) == 0) setPowerDown(PGA_MASK);
+  setPowerDown(~pMask);
+  setPowerUp(pMask);
 
   // se reconecta el DMA
   cfgDMA();
@@ -1191,10 +1197,11 @@ uint32_t deep_sleep()
   if (HIGH == digitalRead(PIN_USB)) return 0;
 
   // sleep
-  uint32_t powMaskOld = powMask;
+  uint32_t pMask = powMask;
   setPowerDown(SD_MASK|XBEE_MASK|PGA_MASK|EXT_MASK);
   lp.DeepSleep(&lp_cfg);
-  setPowerUp(powMaskOld);
+  setPowerDown(~pMask);
+  setPowerUp(pMask);
 
   return 0;
 }
@@ -1235,13 +1242,14 @@ uint32_t sleep_chrono()
       sended = gcSendPPV();
       uint32_t t_end = Teensy3Clock.get();
 
-      if (gc_cfg.ppv_send_time > (t_end-t_ini)) {
+      if ((gc_cfg.ppv_send_time > (t_end-t_ini)) && !sended) {
         lp_cfg.rtc_alarm = gc_cfg.ppv_send_time - (t_end-t_ini);
 
-        uint32_t powMaskOld = powMask;
+        uint32_t pMask = powMask;
         setPowerDown(SD_MASK|XBEE_MASK|PGA_MASK|EXT_MASK);
         lp.DeepSleep(&lp_cfg);
-        setPowerUp(powMaskOld);
+        setPowerDown(~pMask);
+        setPowerUp(pMask);
 
         if (lp_cfg.wake_source == WAKE_USB) {
           return 0;
@@ -1251,16 +1259,17 @@ uint32_t sleep_chrono()
       uint32_t time_end = Teensy3Clock.get();
       rtc_alarm = rtc_alarm_orig - (int32_t)(time_end-time_ini);
     }
-    lp_cfg.rtc_alarm = rtc_alarm;
+    lp_cfg.rtc_alarm = max(rtc_alarm, 0);
   }
 
   if (HIGH == digitalRead(PIN_USB)) return 0;
   // sleep
   if (lp_cfg.rtc_alarm > 0) {
-    uint32_t powMaskOld = powMask;
+    uint32_t pMask = powMask;
     setPowerDown(SD_MASK|XBEE_MASK|PGA_MASK|EXT_MASK);
     lp.DeepSleep(&lp_cfg);
-    setPowerUp(powMaskOld);
+    setPowerDown(~pMask);
+    setPowerUp(pMask);
 
     if (lp_cfg.wake_source == WAKE_USB) {
       return 0;
@@ -1331,13 +1340,14 @@ uint32_t sleep_daily()
       sended = gcSendPPV();
       uint32_t t_end = Teensy3Clock.get();
 
-      if (gc_cfg.ppv_send_time > (t_end-t_ini)) {
+      if ((gc_cfg.ppv_send_time > (t_end-t_ini)) && !sended) {
         lp_cfg.rtc_alarm = gc_cfg.ppv_send_time - (t_end-t_ini);
 
-        uint32_t powMaskOld = powMask;
+        uint32_t pMask = powMask;
         setPowerDown(SD_MASK|XBEE_MASK|PGA_MASK|EXT_MASK);
         lp.DeepSleep(&lp_cfg);
-        setPowerUp(powMaskOld);
+        setPowerDown(~pMask);
+        setPowerUp(pMask);
 
         if (lp_cfg.wake_source == WAKE_USB) {
           return 0;
@@ -1347,16 +1357,17 @@ uint32_t sleep_daily()
       uint32_t time_end = Teensy3Clock.get();
       rtc_alarm = rtc_alarm_orig - (int32_t)(time_end-time_ini);
     }
-    lp_cfg.rtc_alarm = rtc_alarm;
+    lp_cfg.rtc_alarm = max(rtc_alarm, 0);
   }
 
   if (HIGH == digitalRead(PIN_USB)) return 0;
   // sleep
   if (lp_cfg.rtc_alarm > 0) {
-    uint32_t powMaskOld = powMask;
+    uint32_t pMask = powMask;
     setPowerDown(SD_MASK|XBEE_MASK|PGA_MASK|EXT_MASK);
     lp.DeepSleep(&lp_cfg);
-    setPowerUp(powMaskOld);
+    setPowerDown(~pMask);
+    setPowerUp(pMask);
 
     if (lp_cfg.wake_source == WAKE_USB) {
       return 0;
@@ -1430,21 +1441,90 @@ uint16_t WaitOfReaction(uint16_t timeout)
 
   if(strstr(GSM_string, "\r\nCONNECT\r\n"))       { return 27; }
 
+  if(strstr(GSM_string, "+QNTP: 0"))              { return 100; }
+  if(strstr(GSM_string, "+CCLK:"))                { return 101; }
+
   if(strstr(GSM_string, "OK\r\n"))                { return 1; }
 
   return 0;
 }
 //----------------------------------------------------------------------
+boolean ntpSync()
+{
+  const uint32_t pMask = powMask;
+  // power on gsm
+  setPowerUp(GSM_MASK);
+
+  if (powMask & GSM_MASK) {
+    char *str_cmd_ntp[3] = {
+      PSTR("AT+QNTP=\"" NTP1 "\",123\r"),
+      PSTR("AT+QNTP=\"" NTP2 "\",123\r"),
+      PSTR("AT+QNTP=\"" NTP3 "\",123\r")
+    };
+
+    for (uint8_t i = 0; i < 3; i++) {
+      // clear serial line
+      GSM_IO.flush();
+      while (GSM_IO.available()) GSM_IO.read();
+
+      GSM_IO.write(str_cmd_ntp[i]);
+      uint16_t resp = WaitOfReaction(300);
+      if (resp != 1) goto fail;
+
+      resp = WaitOfReaction(120000);
+      if (resp == 100) {
+        // clear serial line
+        GSM_IO.flush();
+        while (GSM_IO.available()) GSM_IO.read();
+
+        GSM_IO.write(PSTR("AT+CCLK?\r"));
+        resp = WaitOfReaction(300);
+        if (resp == 101) {
+          char *pstr = strchr(GSM_string,'\"');
+          int yr = (int)strtol(pstr+1, &pstr, 10);
+          int mnth = (int)strtol(pstr+1, &pstr, 10);
+          int dy = (int)strtol(pstr+1, &pstr, 10);
+          int h = (int)strtol(pstr+1, &pstr, 10);
+          int m = (int)strtol(pstr+1, &pstr, 10);
+          int s = (int)strtol(pstr+1, &pstr, 10);
+          int dl = (int)strtol(pstr+1, &pstr, 10);
+
+          setTime(h, m, s, dy, mnth, yr);
+          adjustTime(((HOUR_OFFSET*SECS_PER_HOUR)+(dl*SECS_PER_HOUR)/4)-1);
+          Teensy3Clock.set(now());
+        }
+        goto sync;
+      }
+    }
+    goto fail;
+  } else goto fail;
+
+sync:
+  // reset power
+  setPowerDown(~pMask);
+  setPowerUp(pMask);
+  return true;
+
+fail:
+  // reset power
+  setPowerDown(~pMask);
+  setPowerUp(pMask);
+  return false;
+}
+//----------------------------------------------------------------------
+void float2s(float f, uint8_t digits, char *s);
 boolean gcSendPPV()
 {
-  uint32_t pMask = powMask;
+  const uint32_t pMask = powMask;
   setPowerUp(SD_MASK);
 
   if (lfile.open(FILENAME_PPV_LOG, O_READ) && lfile.fileSize() > 0) {
     // power on gsm
     setPowerUp(GSM_MASK);
 
-    if ((powMask & GSM_MASK) != 0) {
+    if (powMask & GSM_MASK) {
+      if (!ntpSync()) goto fail; // net test!
+
       if (afile.open(FILENAME_PPV_AUX, O_CREAT | O_TRUNC | O_WRITE)) {
         uint32_t rtc = 0;
         float ppv = 0;
@@ -1454,14 +1534,14 @@ boolean gcSendPPV()
 
         while (lfile.read(&rtc, sizeof(uint32_t))==sizeof(uint32_t) &&
                lfile.read(&ppv, sizeof(float))==sizeof(float)) {
-          char ppv_str[10];
+          char ppv_str[16];
           memset(ppv_str, 0, 10);
-          dtostrf(ppv, 1, 2, ppv_str);
+          float2s(ppv, 7, ppv_str);
 
           memset(url, 0, url_max_size);
           snprintf(url, url_max_size,
-            "http://geobot.timining.cl/geobot?HID=%X&MHID=%X&MLID=%X&LID=%X&TS=%X&PPV=%s",
-//            "http://geobot.timining.cl/geobottest?HID=%X&MHID=%X&MLID=%X&LID=%X&TS=%X&PPV=%s",
+//            "http://geobot.timining.cl/geobot?HID=%X&MHID=%X&MLID=%X&LID=%X&TS=%X&PPV=%s",
+            "http://geobot.timining.cl/geobottest?HID=%X&MHID=%X&MLID=%X&LID=%X&TS=%X&PPV=%s",
             SIM_UIDH, SIM_UIDMH, SIM_UIDML, SIM_UIDL,
             rtc, ppv_str);
 
@@ -1509,9 +1589,6 @@ no_send:
           }
         }
 
-        // power off gsm
-        setPowerDown(GSM_MASK);
-
         uint32_t afileSize = afile.fileSize();
 
         lfile.close();
@@ -1531,15 +1608,16 @@ no_send:
   if (lfile.isOpen()) lfile.close();
   if (afile.isOpen()) afile.close();
 
-  setPowerDown(SD_MASK & ~pMask);
+  setPowerDown(~pMask);
   setPowerUp(pMask);
 
   return true;
+
 fail:
   if (lfile.isOpen()) lfile.close();
   if (afile.isOpen()) afile.close();
 
-  setPowerDown(SD_MASK & ~pMask);
+  setPowerDown(~pMask);
   setPowerUp(pMask);
 
   return false;  
@@ -1644,12 +1722,12 @@ boolean gcSavePPV()
     goto fail;
   }
 
-  setPowerDown(SD_MASK & ~pMask);
+  setPowerDown(~pMask);
   setPowerUp(pMask);
   return true;
 
 fail:
-  setPowerDown(SD_MASK & ~pMask);
+  setPowerDown(~pMask);
   setPowerUp(pMask);
   return false;
 }
@@ -2042,5 +2120,60 @@ void digitalClockDisplay()
   printDigits(second(), false);
   Serial.println();
   //Serial.print(F(" "));
+  //Serial.print(now() % SEG_A_DAY);
+  //Serial.print(F(":"));
   //Serial.println(Teensy3Clock.get() % SEG_A_DAY);
+}
+
+void float2s(float f, uint8_t digits, char *s)
+{
+  uint8_t index=0;
+
+  // handle sign
+  if (f < 0.0)
+  {
+    s[index++] = '-';
+    f = -f;
+  }
+
+  // handle infinite values
+  if (isinf(f))
+  {
+    strcpy(&s[index], "inf");
+    return;
+  }
+
+  // handle Not a Number
+  if (isnan(f))
+  {
+    strcpy(&s[index], "nan");
+    return;
+  }
+
+  // max digits
+  if (digits > 7) digits = 7;
+  int exponent = int(log10(f));
+  double g = f / pow(10, exponent);
+  if ((g < 1.0) && (g != 0.0))
+  {
+    g *= 10;
+    exponent--;
+  }
+  if (exponent < -127) {  // lower limit of single-precision
+    g = 0;
+    exponent = 0;
+  }
+  if (digits < 7) {  // display number rounded at last digit
+    g += 0.5 / pow(10,digits);
+  }
+
+  uint8_t d = g;
+  sprintf(&s[index++], "%d", d);
+  sprintf(&s[index++], ".");
+  for (uint8_t i = 0; i < digits; i++) {
+      g = (g - d) * 10.0;  // shift one decimal place to the left
+      d = int(g);
+      sprintf(&s[index++],"%d",d);
+  }
+  sprintf(&s[index], "e%+d", exponent);
 }
