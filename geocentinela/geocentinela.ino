@@ -540,14 +540,36 @@ void loop()
               scmd = Serial.read();
               if (scmd == '@')  goto out_w;
               if (scmd == '|') {
-                if (ntpSync()) Serial.println("ntp!");
-                else Serial.println("!ntp");
-                goto out_w;
+                if (ntpSync()) {
+                  Serial.println("ntp!");
+                  goto print_t;
+                } else {
+                  Serial.println("!ntp");
+                  goto out_w;
+                }
               }
               GSM_IO.write(scmd);
             }
             while (GSM_IO.available()) {
               Serial.write(GSM_IO.read());
+            }
+          }
+print_t:
+          while (!Serial.available()) {
+            uint32_t t_ini = micros();
+            // clear serial line
+            GSM_IO.flush();
+            while (GSM_IO.available()) GSM_IO.read();
+
+            GSM_IO.write(PSTR("AT+CCLK?\r"));
+            uint16_t resp = WaitOfReaction(300);
+            if (resp == 101) {
+              char *pstr = strchr(GSM_string,'\"');
+              pstr[21] = 0;
+              uint32_t t_fin = micros();
+              Serial.print(pstr+1);
+              Serial.print(":");
+              Serial.println(t_fin-t_ini);
             }
           }
 out_w:
@@ -556,7 +578,8 @@ out_w:
         } break;
         case 'x': {
           Serial.print("filename:");
-          gcSavePPV();
+          if (gcSavePPV()) Serial.print("1:");
+          else Serial.print("0:");
           Serial.println(filename);
         } break;
         case 'z': {
@@ -567,6 +590,27 @@ out_w:
             gc_print("send not OK:");
             gc_println(filename);
           }
+        } break;
+        case '-': {
+          uint32_t t1 = Teensy3Clock.get();
+          uint32_t t2 = t1;
+          while (t1 == t2) {
+            t2 = Teensy3Clock.get();
+          }
+          delay(50);
+          Teensy3Clock.set(t2);
+          setSyncProvider(getTeensy3Time);
+        } break;
+        case '+': {
+          uint32_t t1 = Teensy3Clock.get();
+          uint32_t t2 = t1;
+          while (t1 == t2) {
+            t2 = Teensy3Clock.get();
+          }
+          t2++;
+          delay(950);
+          Teensy3Clock.set(t2);
+          setSyncProvider(getTeensy3Time);
         } break;
         default: {
           gc_println(PSTR("bad cmd!"));

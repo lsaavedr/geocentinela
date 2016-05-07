@@ -1473,27 +1473,46 @@ boolean ntpSync()
 
       resp = WaitOfReaction(120000);
       if (resp == 100) {
-        // clear serial line
-        GSM_IO.flush();
-        while (GSM_IO.available()) GSM_IO.read();
+        int s = -1, snew = s;
+        uint16_t attempt = 0;
+        while (snew == s && (attempt++) < 20) {
+          // clear serial line
+          GSM_IO.flush();
+          while (GSM_IO.available()) GSM_IO.read();
 
-        GSM_IO.write(PSTR("AT+CCLK?\r"));
-        resp = WaitOfReaction(300);
-        if (resp == 101) {
-          char *pstr = strchr(GSM_string,'\"');
-          int yr = (int)strtol(pstr+1, &pstr, 10);
-          int mnth = (int)strtol(pstr+1, &pstr, 10);
-          int dy = (int)strtol(pstr+1, &pstr, 10);
-          int h = (int)strtol(pstr+1, &pstr, 10);
-          int m = (int)strtol(pstr+1, &pstr, 10);
-          int s = (int)strtol(pstr+1, &pstr, 10);
-          int dl = (int)strtol(pstr+1, &pstr, 10);
+          GSM_IO.write(PSTR("AT+CCLK?\r"));
+          resp = WaitOfReaction(300); // 94-95 ms
+          if (resp == 101) {
+            char *pstr = strchr(GSM_string,'\"');
+            int yr = (int)strtol(pstr+1, &pstr, 10);
+            int mnth = (int)strtol(pstr+1, &pstr, 10);
+            int dy = (int)strtol(pstr+1, &pstr, 10);
+            int h = (int)strtol(pstr+1, &pstr, 10);
+            int m = (int)strtol(pstr+1, &pstr, 10);
+            s = (int)strtol(pstr+1, &pstr, 10);
+            int dl = (int)strtol(pstr+1, &pstr, 10);
 
-          setTime(h, m, s, dy, mnth, yr);
-          adjustTime(((HOUR_OFFSET*SECS_PER_HOUR)+(dl*SECS_PER_HOUR)/4)-1);
-          Teensy3Clock.set(now());
+            if (snew == -1) {
+              snew = s;
+            }
+
+            if (snew != s) {
+              setTime(h, m, s, dy, mnth, yr);
+              adjustTime(((HOUR_OFFSET*SECS_PER_HOUR)+(dl*SECS_PER_HOUR)/4));
+              Teensy3Clock.set(now());
+              setSyncProvider(getTeensy3Time);
+              uint32_t t1 = Teensy3Clock.get();
+              uint32_t t2 = t1;
+              while (t1 == t2) {
+                t2 = Teensy3Clock.get();
+              }
+              Teensy3Clock.set(t1);
+              setSyncProvider(getTeensy3Time);
+              goto sync;
+            }
+          }
         }
-        goto sync;
+        goto fail;
       }
     }
     goto fail;
@@ -1625,7 +1644,7 @@ fail:
 //----------------------------------------------------------------------
 boolean gcSavePPV()
 {
-  if (0==gc_cfg.trigger_level || 0==gc_cfg.trigger_time_number || 0==gc_cfg.ppv_send_time) return false;
+  if (0==gc_cfg.ppv_send_time) return false;
 
   uint32_t pMask = powMask;
   setPowerUp(SD_MASK);
@@ -1641,92 +1660,112 @@ boolean gcSavePPV()
   qfile.open(filename, O_READ);
 
   if (file.isOpen() && qfile.isOpen() && qfile.fileSize() > 0) {
-    uint32_t rtcIni = 0;
-    uint32_t nConf = 0;
+    uint8_t fBits;
+    uint16_t fVref;
+    if (file.seekSet(17)) {
+      if (file.read(&fVref, sizeof(uint16_t)) != sizeof(uint16_t)) goto fail;
 
-    float factor = (1000*gc_cfg.sensitivity)*(pow(2,GC_ADC_BITS+gc_cfg.gain)/GC_ADC_VREF);
+      fBits = fVref >> 12;
+      if (fBits == 0) fBits = 16;
 
-    boolean fileOk = true;
-    file.seekSet(50);
-    if (file.read(&rtcIni, sizeof(uint32_t)) != sizeof(uint32_t)) {
-      fileOk = false;
-    } else {
-      // file.seekSet(54);
-      if (file.read(&nConf, sizeof(uint32_t)) != sizeof(uint32_t)) {
-        fileOk = false;
-      }
+      fVref &= 0x0FFF;
+    } else goto fail;
+
+    float fSensitivity;
+    if (file.seekSet(19)) {
+      if (file.read(&fSensitivity, sizeof(float)) != sizeof(float)) goto fail;
+    } else goto fail;
+
+    uint32_t fTrgTimeNumber;
+    if (file.seekSet(25)) {
+      if (file.read(&fTrgTimeNumber, sizeof(uint32_t)) != sizeof(uint32_t)) goto fail;
+    } else goto fail;
+
+    uint8_t fGain;
+    if (file.seekSet(29)) {
+      if (file.read(&fGain, sizeof(uint8_t)) != sizeof(uint8_t)) goto fail;
+      fGain = fGain >> 4;
+    } else goto fail;
+
+    float factor = (1000*fSensitivity)*(pow(2,fBits+fGain)/fVref);
+
+    uint32_t fTickTime;
+    if (file.seekSet(30)) {
+      if (file.read(&fTickTime, sizeof(uint32_t)) != sizeof(uint32_t)) goto fail;
+    } else goto fail;
+
+    uint32_t fRTCini, fNConf;
+    if (file.seekSet(50)) {
+      if (file.read(&fRTCini, sizeof(uint32_t)) != sizeof(uint32_t)) goto fail;
+      if (file.read(&fNConf, sizeof(uint32_t)) != sizeof(uint32_t)) goto fail;
+    } else goto fail;
+
+    uint32_t fNRConf;
+    if (file.seekEnd(-12)) {
+      if (file.read(&fNRConf, sizeof(uint32_t)) != sizeof(uint32_t)) goto fail;
+      fNRConf = fNConf - fNRConf;
     }
 
-    if (fileOk) {
-      // open ppv.log file:
-      boolean lfileOk = true;
-      if (!sd.exists(FILENAME_PPV_LOG)) {
-        lfileOk = lfile.open(FILENAME_PPV_LOG, O_CREAT | O_EXCL | O_TRUNC | O_WRITE);
-      } else {
-        lfileOk = lfile.open(FILENAME_PPV_LOG, O_WRITE | O_APPEND);
-      }
+    // open ppv.log file:
+    boolean lfileOk = true;
+    if (!sd.exists(FILENAME_PPV_LOG)) {
+      lfileOk = lfile.open(FILENAME_PPV_LOG, O_CREAT | O_EXCL | O_TRUNC | O_WRITE);
+    } else {
+      lfileOk = lfile.open(FILENAME_PPV_LOG, O_WRITE | O_APPEND);
+    }
 
-      if (!lfileOk || !lfile.isOpen()) {
-        if (lfile.isOpen()) lfile.close();
+    if (!lfileOk || !lfile.isOpen()) {
+      if (lfile.isOpen()) lfile.close();
+      goto fail;
+    }
 
-        file.close();
-        qfile.close();
+    uint32_t trg = 0;
+    while (qfile.read(&trg, sizeof(uint32_t)) == sizeof(uint32_t)) {
+      trg = fNConf - trg;
+      file.seekSet(FILE_HEAD+3*sizeof(uint16_t)*trg);
 
-        goto fail;
-      }
+      uint32_t vmax = 0;
+      uint32_t imax = 0;
+      uint16_t values[3] = { 0, 0, 0};
+      for (uint32_t i = 0; i < fTrgTimeNumber && (trg+i) < fNRConf; i++) {
+        if (file.read(values, 3*sizeof(uint16_t)) != 3*sizeof(uint16_t)) {
+          if (lfile.isOpen()) lfile.close();
+          goto fail;
+        } else {
+          uint32_t
+          value  = (values[0]-GC_ADC0_AZV)*(values[0]-GC_ADC0_AZV);
+          value += (values[1]-GC_ADC0_AZV)*(values[1]-GC_ADC0_AZV);
+          value += (values[2]-GC_ADC0_AZV)*(values[2]-GC_ADC0_AZV);
 
-      uint32_t trg = 0;
-      qfile.seekSet(0);
-      while (qfile.read(&trg, sizeof(uint32_t)) == sizeof(uint32_t)) {
-        trg = nConf - trg;
-        file.seekSet(FILE_HEAD+3*sizeof(uint16_t)*trg);
-
-        uint32_t vmax = 0;
-        uint32_t imax = 0;
-        uint16_t values[3] = { 0, 0, 0};
-        for (uint32_t i = 0; i < gc_cfg.trigger_time_number; i++) {
-          if (file.read(values, 3*sizeof(uint16_t)) != 3*sizeof(uint16_t)) {
-            break;
-          } else {
-            uint32_t
-            value  = (values[0]-GC_ADC0_AZV)*(values[0]-GC_ADC0_AZV);
-            value += (values[1]-GC_ADC0_AZV)*(values[1]-GC_ADC0_AZV);
-            value += (values[2]-GC_ADC0_AZV)*(values[2]-GC_ADC0_AZV);
-
-            if (value > vmax) {
-              vmax = value;
-              imax = i;
-            }
+          if (value > vmax) {
+            vmax = value;
+            imax = i;
           }
         }
-
-        uint32_t rtc = rtcIni+(uint32_t)((trg+imax)*(gc_cfg.tick_time_useg/1000000.0));
-        float ppv = sqrt(vmax)/factor;
-
-        lfile.write((uint8_t*)&rtc, sizeof(uint32_t));
-        lfile.write((uint8_t*)&ppv, sizeof(float));
       }
 
-      // close ppv.log file:
-      lfile.close();
+      uint32_t rtc = fRTCini+(uint32_t)((trg+imax)*(fTickTime/1000000.0));
+      float ppv = sqrt(vmax)/factor;
+
+      lfile.write((uint8_t*)&rtc, sizeof(uint32_t));
+      lfile.write((uint8_t*)&ppv, sizeof(float));
     }
 
-    file.close();
-    qfile.close();
+    // close ppv.log file:
+    lfile.close();
+  } else goto fail;
 
-    if (!fileOk) goto fail;
-  } else {
-    if (file.isOpen()) file.close();
-    if (qfile.isOpen()) qfile.close();
-
-    goto fail;
-  }
+  if (file.isOpen()) file.close();
+  if (qfile.isOpen()) qfile.close();
 
   setPowerDown(~pMask);
   setPowerUp(pMask);
   return true;
 
 fail:
+  if (file.isOpen()) file.close();
+  if (qfile.isOpen()) qfile.close();
+
   setPowerDown(~pMask);
   setPowerUp(pMask);
   return false;
