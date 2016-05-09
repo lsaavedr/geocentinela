@@ -93,14 +93,14 @@ boolean gcCFG::write()
     file_cfg.write((uint8_t*)&ppv_send_time, sizeof(uint32_t));
 
     if (!file_cfg.close()) {
-      log(PSTR("GeoCentinelaCFG: file close error"));
+      log(PSTR("gcCFG:write: file close error"));
       log(file_name);
 
       writeEEPROM();
       return false;
     }
   } else {
-    log(PSTR("GeoCentinelaCFG: file open error"));
+    log(PSTR("gcCFG:write: file open error"));
     log(file_name);
 
     writeEEPROM();
@@ -177,9 +177,9 @@ boolean gcCFG::read()
   if (file_cfg.open(file_name, O_READ)) {
     // read float sensitivity:
     if (file_cfg.read(&sensitivity, sizeof(float)) != sizeof(float)) {
-      log(PSTR("GeoCentinelaCFG: sensitivity"));
+      log(PSTR("gcCFG:read: sensitivity"));
       if (!file_cfg.close()) {
-        log(PSTR("GeoCentinelaCFG: file close error"));
+        log(PSTR("gcCFG:read: file close error"));
         log(file_name);
       }
       return readEEPROM();
@@ -191,9 +191,9 @@ boolean gcCFG::read()
 
     // read uint8_t gain and average:
     if (file_cfg.read(&gain, sizeof(uint8_t)) != sizeof(uint8_t)) {
-      log(PSTR("GeoCentinelaCFG: gain"));
+      log(PSTR("gcCFG:read: gain"));
       if (!file_cfg.close()) {
-        log(PSTR("GeoCentinelaCFG: file close error"));
+        log(PSTR("gcCFG:read: file close error"));
         log(file_name);
       }
       return readEEPROM();
@@ -212,9 +212,9 @@ boolean gcCFG::read()
 
     // read uint32_t tick_time_useg:
     if (file_cfg.read(&tick_time_useg, sizeof(uint32_t)) != sizeof(uint32_t)) {
-      log(PSTR("GeoCentinelaCFG: tick_time_useg"));
+      log(PSTR("gcCFG:read: tick_time_useg"));
       if (!file_cfg.close()) {
-        log(PSTR("GeoCentinelaCFG: file close error"));
+        log(PSTR("gcCFG:read: file close error"));
         log(file_name);
       }
       return readEEPROM();
@@ -226,9 +226,9 @@ boolean gcCFG::read()
 
     // read uint8_t time_type:
     if (file_cfg.read(&time_type, sizeof(uint8_t)) != sizeof(uint8_t)) {
-      log(PSTR("GeoCentinelaCFG: time_type"));
+      log(PSTR("gcCFG:read: time_type"));
       if (!file_cfg.close()) {
-        log(PSTR("GeoCentinelaCFG: file close error"));
+        log(PSTR("gcCFG:read: file close error"));
         log(file_name);
       }
       return readEEPROM();
@@ -240,9 +240,9 @@ boolean gcCFG::read()
 
     // read uint32_t time_begin_seg:
     if (file_cfg.read(&time_begin_seg, sizeof(uint32_t)) != sizeof(uint32_t)) {
-      log(PSTR("GeoCentinelaCFG: time_begin_seg"));
+      log(PSTR("gcCFG:read: time_begin_seg"));
       if (!file_cfg.close()) {
-        log(PSTR("GeoCentinelaCFG: file close error"));
+        log(PSTR("gcCFG:read: file close error"));
         log(file_name);
       }
       return readEEPROM();
@@ -254,9 +254,9 @@ boolean gcCFG::read()
 
     // read uint32_t time_end_seg:
     if (file_cfg.read(&time_end_seg, sizeof(uint32_t)) != sizeof(uint32_t)) {
-      log(PSTR("GeoCentinelaCFG: time_end_seg"));
+      log(PSTR("gcCFG:read: time_end_seg"));
       if (!file_cfg.close()) {
-        log(PSTR("GeoCentinelaCFG: file close error"));
+        log(PSTR("gcCFG:read: file close error"));
         log(file_name);
       }
       return readEEPROM();
@@ -268,9 +268,9 @@ boolean gcCFG::read()
 
     // read gps:
     if (file_cfg.read(&gps, sizeof(uint8_t)) != sizeof(uint8_t)) {
-      log(PSTR("GeoCentinelaCFG: gps"));
+      log(PSTR("gcCFG:read: gps"));
       if (!file_cfg.close()) {
-        log(PSTR("GeoCentinelaCFG: file close error"));
+        log(PSTR("gcCFG:read: file close error"));
         log(file_name);
       }
       return readEEPROM();
@@ -282,9 +282,9 @@ boolean gcCFG::read()
 
     // read uint16_t trigger_level:
     if (file_cfg.read(&trigger_level, sizeof(uint16_t)) != sizeof(uint16_t)) {
-      log(PSTR("GeoCentinelaCFG: trigger_level"));
+      log(PSTR("gcCFG:read: trigger_level"));
       if (!file_cfg.close()) {
-        log(PSTR("GeoCentinelaCFG: file close error"));
+        log(PSTR("gcCFG:read: file close error"));
         log(file_name);
       }
       return readEEPROM();
@@ -296,9 +296,9 @@ boolean gcCFG::read()
 
     // read uint32_t trigger_time_number:
     if (file_cfg.read(&trigger_time_number, sizeof(uint32_t)) != sizeof(uint32_t)) {
-      log(PSTR("GeoCentinelaCFG: trigger_time_number"));
+      log(PSTR("gcCFG:read: trigger_time_number"));
       if (!file_cfg.close()) {
-        log(PSTR("GeoCentinelaCFG: file close error"));
+        log(PSTR("gcCFG:read: file close error"));
         log(file_name);
       }
       return readEEPROM();
@@ -310,9 +310,9 @@ boolean gcCFG::read()
 
     // read uint32_t ppv_send_time:
     if (file_cfg.read(&ppv_send_time, sizeof(uint32_t)) != sizeof(uint32_t)) {
-      log(PSTR("GeoCentinelaCFG: ppv_send_time"));
+      log(PSTR("gcCFG:read: ppv_send_time"));
       if (!file_cfg.close()) {
-        log(PSTR("GeoCentinelaCFG: file close error"));
+        log(PSTR("gcCFG:read: file close error"));
         log(file_name);
       }
       return readEEPROM();
@@ -323,14 +323,14 @@ boolean gcCFG::read()
     }
 
     if (!file_cfg.close()) {
-      log(PSTR("GeoCentinelaCFG: file close error"));
+      log(PSTR("gcCFG:read: file close error"));
       log(file_name);
       return readEEPROM();
     }
 
     file_cfg.timestamp(T_ACCESS, year(), month(), day(), hour(), minute(), second());
   } else {
-    log(PSTR("GeoCentinelaCFG: file open error"));
+    log(PSTR("gcCFG:read: file open error"));
     log(file_name);
 
     return readEEPROM();
