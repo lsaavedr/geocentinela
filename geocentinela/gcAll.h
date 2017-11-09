@@ -1,8 +1,6 @@
-void gc_print(const char *log_string);
-void gc_println(const char *log_string);
+#include "dcodec.h"
 //-------------------------------
-#include "gcCFG.h"
-gcCFG gc_cfg(PSTR("GC03.CFG"), gc_println);
+rInstrument geocentinela;
 //-------------------------------
 TEENSY3_LP lp = TEENSY3_LP();
 sleep_block_t lp_cfg; // sleep configuration
@@ -24,6 +22,8 @@ sleep_block_t lp_cfg; // sleep configuration
 #define GC_ADC1_A2 GC_ADC0_A2
 #define GC_ADC1_A3 GC_ADC0_A3
 #define GC_ADC1_A10 3
+#define GC_ADC0_BAT GC_ADC0_A10
+#define GC_ADC1_BAT GC_ADC1_A10
 #define GC_ADC_TEMP 26
 #define GC_ADC_BANDGAP 27
 #define GC_ADC_REFSEL 0 // 0->3.3v(ext 2.5v), 1->1.2v
@@ -42,21 +42,25 @@ volatile uint16_t
   __attribute__((aligned(GC_ADC_RING_SIZE_BYTES)))
   adc_ring_buffer[GC_ADC_RING_SIZE];
 
-volatile uint32_t adc_config[14] = {
-  ADC_SC1_ADCH(GC_ADC0_A2),
-  ADC_SC1_ADCH(GC_ADC0_A5),
-  ADC_SC1_ADCH(GC_ADC0_A9),
+volatile uint32_t adc_config[18] = {
+  ADC_SC1_ADCH(GC_ADC0_A2), // ADC0_ch0
+  ADC_SC1_ADCH(GC_ADC0_A5), // ADC0_ch1
+  ADC_SC1_ADCH(GC_ADC0_A9), // ADC0_ch2
   ADC_SC1_ADCH(31), // stop=0b11111=31
-  ADC_SC1_ADCH(GC_ADC0_A10), // read battery state
+  ADC_SC1_ADCH(GC_ADC0_BAT), // read battery state
   ADC_SC1_ADCH(31), // stop=0b11111=31
-  ADC_SC1_ADCH(GC_ADC0_A11), // read zero vref
+  ADC_SC1_ADCH(GC_ADC0_AZ), // read zero vref
+  ADC_SC1_ADCH(31), // stop=0b11111=31
+  ADC_SC1_ADCH(GC_ADC1_A10), //  A2 in gc v3.4 ADC1_ch0
+  ADC_SC1_ADCH(GC_ADC1_A10), //  A3 in gc v3.4 ADC1_ch1
+  ADC_SC1_ADCH(GC_ADC1_A10), // A10 in gc v3.4 ADC1_ch2
+  ADC_SC1_ADCH(31), // stop=0b11111=31
+  ADC_SC1_ADCH(GC_ADC1_BAT), // read zero vref
+  ADC_SC1_ADCH(31), // stop=0b11111=31
+  ADC_SC1_ADCH(GC_ADC1_AZ), // read zero vref
   ADC_SC1_ADCH(31), // stop=0b11111=31
   ADC_SC1_ADCH(GC_ADC_TEMP), // read temperature
-  ADC_SC1_ADCH(31), // stop=0b11111=31
-  ADC_SC1_ADCH(GC_ADC1_A10), //  A2 in gc v3.4
-  ADC_SC1_ADCH(GC_ADC1_A10), //  A3 in gc v3.4
-  ADC_SC1_ADCH(GC_ADC1_A10), // A10 in gc v3.4
-  ADC_SC1_ADCH(31), // stop=0b11111=31
+  ADC_SC1_ADCH(31)  // stop=0b11111=31
 };
 //--------------------------------------------------
 #define SD_CS   10
@@ -69,51 +73,36 @@ SdFile file;
 #define GC_SD_BUFFER_SIZE_BYTES (GC_SD_BUFFER_SIZE*2) // 2 == sizeof(uint16_t)
 uint16_t sd_buffer[GC_SD_BUFFER_SIZE];
 //--------------------------------------------------
-// Create an XBee object at the top of your sketch
-#define XBEE_SLEEP_TIME 10000
-
-#define XBEE_nSLEEP_ON 20
-#define XBEE_SLEEP_RQ   9
-#define XBEE_nRESET    06
-
-#define XBEE_IO Serial3
-#define XBEE_RX  8
-#define XBEE_TX 07
-volatile uint32_t xbeeBD = 0;
-
-#define XBEE_nRTS 15
-#define XBEE_nCTS 21
-
-#define GSM_IO XBEE_IO
-#define GSM_RX XBEE_RX
-#define GSM_TX XBEE_TX
-#define GSM_W1 XBEE_nCTS
-#define GSM_BUFFER_SIZE 256
-char GSM_string[GSM_BUFFER_SIZE];
-#define NTP1 "3.cl.pool.ntp.org"
-#define NTP2 "3.south-america.pool.ntp.org"
-#define NTP3 "2.south-america.pool.ntp.org"
-//--------------------------------------------------
-SdFile qfile;
-#define QUAKE_LIST_LENGTH 0x100
-#define QUAKE_LIST_LENGTH_BYTES QUAKE_LIST_LENGTH*4 // 4 == sizeof(uint32_t)
-uint32_t quake_list[QUAKE_LIST_LENGTH];
-uint32_t adc_play_cnt_quake;
-uint16_t quake_head;
+SdFile tfile;
+#define TRIGGER_LIST_LENGTH 0x100
+#define TRIGGER_LIST_LENGTH_BYTES TRIGGER_LIST_LENGTH*4 // 4 == sizeof(uint32_t)
+uint32_t trigger_list[TRIGGER_LIST_LENGTH];
+volatile uint32_t adc_play_cnt_trigger_check;
+volatile uint16_t trigger_list_head;
+volatile uint32_t trigger_time_cnt;
+volatile uint32_t send_trigger_time_cnt;
 #define TRIGGER_BY_SOFTWARE 1
 
 #if TRIGGER_BY_SOFTWARE == 0
 #elif TRIGGER_BY_SOFTWARE == 1
 const uint32_t adc_ring_buffer_mmin = (uint32_t)&(adc_ring_buffer[0]);
 const uint32_t adc_ring_buffer_mmax = (uint32_t)&(adc_ring_buffer[0]) + (GC_ADC_RING_SIZE_BYTES-1);
-volatile uint16_t quake_min;
-volatile uint16_t quake_max;
+volatile uint16_t trigger_min;
+volatile uint16_t trigger_max;
 #endif
 
-SdFile lfile;
-SdFile afile;
-#define FILENAME_PPV_LOG "PPV.LOG"
-#define FILENAME_PPV_AUX "PPV.AUX"
+SdFile synclog;
+SdFile syncaux;
+#define FILENAME_SYNC_LOG "SYNC.LOG"
+#define FILENAME_SYNC_AUX "SYNC.AUX"
+
+SdFile cfile;
+#define FILENAME_CACHE_EVF "CACHE.EVF"
+
+SdFile syslog;
+SdFile sysaux;
+#define FILENAME_SYS_LOG "SYS.LOG"
+#define FILENAME_SYS_AUX "SYS.AUX"
 //--------------------------------------------------
 IntervalTimer adc_play;
 //--------------------------------------------------
@@ -125,6 +114,7 @@ volatile uint32_t adc_errors = 0;
 volatile uint32_t buffer_errors = 0;
 
 volatile uint32_t adc_play_cnt = 0;
+volatile uint32_t adc_play_stop = 0;
 volatile uint32_t adc_rtc_stop = 0;
 //--------------------------------------------------
 volatile uint8_t gcPlayStat = 0;// GeoCentinela Play Status
@@ -140,8 +130,8 @@ volatile uint8_t gcCfgStat = 0;// GeoCentinela Config Status
 #define GC_CFG_ADC    0x01 // ADC OK
 #define GC_CFG_DMA    0x02 // DMA OK
 //--------------------------------------------------
-#define FILE_FORMAT 0x05
-#define FILE_HEAD 62
+#define FILE_FORMAT 0x06
+#define FILE_HEAD 84
 #define FILE_TAIL 24
 #define FILENAME_FORMAT "GC000000.???"
 #define FILENAME_MAX_LENGH 12 // 8.3 filename
@@ -155,11 +145,11 @@ char filename[FILENAME_MAX_LENGH+1] = FILENAME_FORMAT;
 #define SDX_POW 03 // 3.3V
 #define PGA_POW 22 // 5Va
 #define EXT_POW 02 // 3.3VP
-#define XBEE_MASK 0b01000
-#define SD_MASK   0b00100
-#define PGA_MASK  0b00010
-#define EXT_MASK  0b00001
-#define GSM_MASK  0b10000
+#define M95_MASK      0b001000
+#define SD_MASK       0b000100
+#define PGA_MASK      0b000010
+#define EXT_MASK      0b000001
+#define ALL_MASK      0b001111
 #define POWER_UP_MASK 0b100000
 volatile uint8_t powMask = 0;
 //--------------------------------------------------
@@ -169,7 +159,6 @@ volatile uint8_t powMask = 0;
 #define GAIN_A2 17
 //--------------------------------------------------
 TinyGPS gps;
-#define HOUR_OFFSET -3
 #define GPS_RTC_SYNC_TIME 5*60*1000 // 5min
 #define GPS_PPS 04
 #define GPS_IO Serial1
@@ -177,70 +166,34 @@ TinyGPS gps;
 #define GPS_TX 01
 //--------------------------------------------------
 #define LOG_TIMEOUT 1000
-#define SEG_A_DAY 86400
+//--------------------------------------------------
+#define XBEE_nSLEEP_ON 20
+#define XBEE_SLEEP_RQ   9
+#define XBEE_nRESET    06
+
+#define XBEE_IO Serial3
+#define XBEE_RX  8
+#define XBEE_TX 07
+
+#define XBEE_nRTS 15
+#define XBEE_nCTS 21
+
+#include "M95.h"
+M95 m95(Serial3,
+  (char*)adc_ring_buffer, GC_ADC_RING_SIZE_BYTES,
+  (char*)sd_buffer, GC_SD_BUFFER_SIZE_BYTES);
 //--------------------------------------------------
 void stop_reading();
 void setPGA(uint8_t g);
-uint16_t WaitOfReaction(uint16_t);
-//--------------------------------------------------
-time_t getTeensy3Time()
-{
-  return Teensy3Clock.get();
-}
-
-void cfgRTC()
-{
-  // se verifica el RTC
-  setSyncProvider(getTeensy3Time);
-  while (timeStatus() != timeSet) {
-    gc_println(PSTR("error: rtc!"));
-    delay(LOG_TIMEOUT);
-    setSyncProvider(getTeensy3Time);
-  }
-}
 //--------------------------------------------------
 void setPowerDown(uint8_t mask)
 {
-  if ((mask & GSM_MASK) > 0) {
-    if (!(powMask & GSM_MASK)) goto out_gsm;
+  if ((mask & M95_MASK) > 0) {
+    if (!(powMask & M95_MASK)) goto out_m95;
 
-    // clear serial line
-    GSM_IO.flush();
-    while (GSM_IO.available()) GSM_IO.read();
-
-    // normal power down
-    GSM_IO.write("AT+QPOWD=1\r");
-    uint16_t resp = WaitOfReaction(500);
-
-    GSM_IO.end();
-
-    powMask &= ~GSM_MASK;
+    if (m95.powerDown()) powMask &= ~M95_MASK;
   }
-out_gsm:
-
-  if ((mask & XBEE_MASK) > 0) {
-    if (!(powMask & XBEE_MASK)) goto out_xbee;
-
-    digitalWrite(XBEE_SLEEP_RQ, HIGH);
-    uint32_t stime = millis();
-    while (millis() - stime < XBEE_SLEEP_TIME) {
-      if (digitalRead(XBEE_nSLEEP_ON)==LOW) break;
-    } delay(200);
-
-    digitalWrite(XBEE_nRESET, LOW);
-    digitalWrite(XBEE_nRTS, LOW);
-
-    XBEE_IO.end();
-
-    if (!(powMask & SD_MASK)) {
-      digitalWrite(SDX_POW, LOW);
-      digitalWrite(XBEE_SLEEP_RQ, LOW);
-      digitalWrite(XBEE_nRESET, LOW);
-    }
-
-    powMask &= ~XBEE_MASK;
-  }
-out_xbee:
+out_m95:
 
   if ((mask & SD_MASK) > 0) {
     if (!(powMask & SD_MASK)) goto out_sd;
@@ -250,12 +203,6 @@ out_xbee:
     pinMode(SD_SCK, OUTPUT); digitalWrite(SD_SCK, LOW);
     pinMode(SD_MOSI, OUTPUT); digitalWrite(SD_MOSI, LOW);
 
-    if (!(powMask & XBEE_MASK)) {
-      digitalWrite(SDX_POW, LOW);
-      digitalWrite(XBEE_SLEEP_RQ, LOW);
-      digitalWrite(XBEE_nRESET, LOW);
-    }
-
     powMask &= ~SD_MASK;
   }
 out_sd:
@@ -263,8 +210,8 @@ out_sd:
   if ((mask & PGA_MASK) > 0) {
     if (!(powMask & PGA_MASK)) goto out_pga;
 
-    digitalWrite(GAIN_CS, LOW);
-    digitalWrite(PGA_POW, LOW);
+    pinMode(GAIN_CS, OUTPUT); digitalWrite(GAIN_CS, LOW);
+    pinMode(PGA_POW, OUTPUT); digitalWrite(PGA_POW, LOW);
     powMask &= ~PGA_MASK;
   }
 out_pga:
@@ -272,7 +219,7 @@ out_pga:
   if ((mask & EXT_MASK) > 0) {
     if (!(powMask & EXT_MASK)) goto out_ext;
 
-    digitalWrite(EXT_POW, LOW);
+    pinMode(EXT_POW, OUTPUT); digitalWrite(EXT_POW, LOW);
     powMask &= ~EXT_MASK;
   }
 out_ext:
@@ -282,185 +229,47 @@ out_ext:
 
 void setPowerUp(uint8_t mask)
 {
-  if ((mask & GSM_MASK) > 0) {
-    if (powMask & GSM_MASK) goto out_gsm;
+  if ((mask & M95_MASK) > 0) {
+    if (powMask & M95_MASK) goto out_m95;
 
-    pinMode(GSM_W1, OUTPUT);
-    digitalWrite(GSM_W1, HIGH);
-    GSM_IO.begin(9600);
-
-    // clear serial line
-    GSM_IO.flush();
-    while (GSM_IO.available()) GSM_IO.read();
-
-    // try power on
-    digitalWrite(GSM_W1, LOW);
-    delay(1100);
-    digitalWrite(GSM_W1, HIGH);
-    uint16_t resp = WaitOfReaction(5000);
-
-    powMask |= GSM_MASK;
-    if (20 != resp) {
-gsm_fail:
-/*
-      Serial.println("fail to power on gsm!");
-      Serial.println(GSM_string);
-      Serial.print("resp:");
-      Serial.println(resp);
-*/
-      setPowerDown(GSM_MASK);
-    } else {
-      resp = WaitOfReaction(5000);
-      if (22 == resp) goto gsm_fail;
-
-      resp = WaitOfReaction(5000);
-      if (21 != resp) goto gsm_fail; // no "+CPIN:READY"?
-
-      resp = WaitOfReaction(5000);
-      if (0 != resp) goto gsm_fail; // no "Call Ready"?
-
-      // make sure the network is registered successfully
-      for (uint8_t i = 0; i < 10; i++) {
-        // clear serial line
-        GSM_IO.flush();
-        while (GSM_IO.available()) GSM_IO.read();
-
-        // check the network
-        GSM_IO.write("AT+CREG?\r");
-        resp = WaitOfReaction(300);
-        if (23 == resp) break;
-        delay(3000);
-      }
-      if (23 != resp) goto gsm_fail; // no "+CREG: 0,1"?
-
-      // clear serial line
-      GSM_IO.flush();
-      while (GSM_IO.available()) GSM_IO.read();
-
-      // Set the context 0 as the foreground context      
-      GSM_IO.write("AT+QIFGCNT=0\r");
-      resp = WaitOfReaction(300);
-      if (1 != resp) goto gsm_fail; // no "OK"?
-
-      // clear serial line
-      GSM_IO.flush();
-      while (GSM_IO.available()) GSM_IO.read();
-
-      // Set APN for the current context
-      GSM_IO.write("AT+COPS?\r");
-      resp = WaitOfReaction(75000);
-      switch (resp) {
-        case 24: { // Entel
-          // clear serial line
-          GSM_IO.flush();
-          while (GSM_IO.available()) GSM_IO.read();
-
-          // apn entel;
-          GSM_IO.write("AT+QICSGP=1,\"bam.entelpcs.cl\",\"entelpcs\",\"entelpcs\"\r");
-        } break;
-        case 25: { // Claro
-          // clear serial line
-          GSM_IO.flush();
-          while (GSM_IO.available()) GSM_IO.read();
-
-          // apn claro:
-          GSM_IO.write("AT+QICSGP=1,\"bam.clarochile.cl\",\"clarochile\",\"clarochile\"\r");
-        } break;
-        case 26: { // Movistar
-          // clear serial line
-          GSM_IO.flush();
-          while (GSM_IO.available()) GSM_IO.read();
-
-          // apn movistar
-          GSM_IO.write("AT+QICSGP=1,\"wap.tmovil.cl\",\"wap\",\"wap\"\r");
-        } break;
-        default: goto gsm_fail;
-      }
-      resp = WaitOfReaction(300);
-      if (1!=resp) goto gsm_fail;
-
-      // clear serial line
-      GSM_IO.flush();
-      while (GSM_IO.available()) GSM_IO.read();
-
-      // Set server address to the domain name server format
-      GSM_IO.write("AT+QIDNSIP=1\r");
-      resp = WaitOfReaction(300);
-      if (1!=resp) goto gsm_fail;
-
-      // Set mode: when receiving the data
-      GSM_IO.write("AT+QINDI=1\r");
-      resp = WaitOfReaction(300);
-      if (1!=resp) goto gsm_fail;
-    }
+    if (m95.powerUp(geocentinela)) powMask |= M95_MASK;
   }
-out_gsm:
-
-  if ((mask & XBEE_MASK) > 0) {
-    if (powMask & XBEE_MASK) goto out_xbee;
-
-    if (xbeeBD != 0) {
-      XBEE_IO.begin(xbeeBD);
-    } else {
-      XBEE_IO.begin(9600);
-    }
-
-    digitalWrite(XBEE_nRESET, HIGH);
-    digitalWrite(XBEE_nRTS, LOW);
-
-    digitalWrite(SDX_POW, HIGH);
-
-    digitalWrite(XBEE_SLEEP_RQ, LOW);
-    uint32_t stime = millis();
-    while (millis() - stime < XBEE_SLEEP_TIME/10) {
-      if (digitalRead(XBEE_nSLEEP_ON)==HIGH && digitalRead(XBEE_nCTS)==LOW) {
-        stime = 0; break;
-      }
-    } delay(200);
-
-    powMask |= XBEE_MASK;
-    if (stime != 0) setPowerDown(XBEE_MASK);
-  }
-out_xbee:
+out_m95:
 
   if ((mask & SD_MASK) > 0) {
     if (powMask & SD_MASK) goto out_sd;
 
-    digitalWrite(SDX_POW, HIGH); delay(500);
-    ADC0_SC1A = adc_config[3]; // revisar pq es necesario...
+    pinMode(SDX_POW, OUTPUT); digitalWrite(SDX_POW, HIGH);
+    delay(200);
 
     sd = SdFat();
     while(!sd.begin(SD_CS, SPI_FULL_SPEED)) {
-      gc_println(PSTR("error: sdcard"));
-      //sd.errorPrint();
+      geocentinela.println(PSTR("error: sdcard"));
       delay(LOG_TIMEOUT);
     }
     while (sd.card()->isBusy()); delay(200);
     sd.chvol();
 
     powMask |= SD_MASK;
-
-    if (!(powMask & XBEE_MASK)) {// hibernate xbee
-      setPowerUp(XBEE_MASK);
-      setPowerDown(XBEE_MASK);
-    }
   }
 out_sd:
 
   if ((mask & PGA_MASK) > 0) {
     if (powMask & PGA_MASK) goto out_pga;
 
-    digitalWrite(PGA_POW, HIGH); delay(200);
+    pinMode(PGA_POW, OUTPUT); digitalWrite(PGA_POW, HIGH);
+    delay(200);
 
     powMask |= PGA_MASK;
-    setPGA(gc_cfg.gain);
+    setPGA(geocentinela.c.getGain());
   }
 out_pga:
 
   if ((mask & EXT_MASK) > 0) {
     if (powMask & EXT_MASK) goto out_ext;
 
-    digitalWrite(EXT_POW, HIGH); delay(200);
+    pinMode(EXT_POW, OUTPUT); digitalWrite(EXT_POW, HIGH);
+    delay(200);
 
     powMask |= EXT_MASK;
   }
@@ -493,7 +302,56 @@ String strDouble(String str, double val, uint8_t precision)
 
   return str;
 }
+/*
+static boolean gps2rtcSync()
+{
+  uint32_t fix_age;
+  int Year;
+  uint8_t Month, Day, Hour, Minute, Second;
+  gps.crack_datetime(&Year, &Month, &Day, &Hour, &Minute, &Second, NULL, &fix_age);
+  if (fix_age < 500) {
+    // set the Time to the latest GPS reading
+    setTime(Hour, Minute, Second, Day, Month, Year);
+    adjustTime(geocentinela.getTimeZoneOffset());
+  } else return false;
 
+  float flat, flon;
+  gps.f_get_position(&flat, &flon, &fix_age);
+  if (fix_age < 500 and fix_age != TinyGPS::GPS_INVALID_AGE) {
+    return true;
+  }
+
+  return false;
+}
+*/
+
+/*
+void syncGps()
+{
+  if (!geocentinela.getGps()) return;
+  return;
+
+  // GPS power on
+  setPowerUp(EXT_MASK);
+
+  cfgGps();
+
+  // sync
+  char c = 0;
+  uint8_t timeIni = millis();
+  boolean rtcSync = false;
+  while (!rtcSync and (millis() - timeIni) <= GPS_RTC_SYNC_TIME and (gcPlayStat & GC_ST_CONFIG) == 0) {
+    while (GPS_IO.available() > 0 and !rtcSync) {
+      c = GPS_IO.read();
+      Serial.write(c);
+      if (gps.encode(c)) rtcSync = gps2rtcSync();
+    }
+  }
+
+  // GPS power off
+  setPowerDown(EXT_MASK);
+}
+*/
 static void cfgGps()
 {
   GPS_IO.begin(4800);
@@ -516,79 +374,10 @@ static void cfgGps()
   //GPS_IO.println(F("$PSRF103,6,0,1,1*23"));
   //GPS_IO.println(F("$PSRF103,8,0,1,1*2D"));
 }
-
-static boolean gps2rtcSync()
-{
-  uint32_t fix_age;
-  int Year;
-  uint8_t Month, Day, Hour, Minute, Second;
-  gps.crack_datetime(&Year, &Month, &Day, &Hour, &Minute, &Second, NULL, &fix_age);
-  if (fix_age < 500) {
-    // set the Time to the latest GPS reading
-    setTime(Hour, Minute, Second, Day, Month, Year);
-    adjustTime(HOUR_OFFSET * SECS_PER_HOUR);
-  } else return false;
-
-  float flat, flon;
-  gps.f_get_position(&flat, &flon, &fix_age);
-  if (fix_age < 500 && fix_age != TinyGPS::GPS_INVALID_AGE) {
-    return true;
-  }
-
-  return false;
-}
-
-void syncGps()
-{
-  if (!gc_cfg.gps) return;
-
-  // GPS power on
-  setPowerUp(EXT_MASK);
-
-  cfgGps();
-
-  // sync
-  char c = 0;
-  uint8_t timeIni = millis();
-  boolean rtcSync = false;
-  while (!rtcSync && (millis() - timeIni) <= GPS_RTC_SYNC_TIME && (gcPlayStat & GC_ST_CONFIG) == 0) {
-    while (GPS_IO.available() > 0 && !rtcSync) {
-      c = GPS_IO.read();
-      Serial.write(c);
-      if (gps.encode(c)) rtcSync = gps2rtcSync();
-    }
-  }
-
-  // GPS power off
-  setPowerDown(EXT_MASK);
-}
-
-void cfgGPS()
-{
-  // se configura la alimentacion
-  pinMode(EXT_POW, OUTPUT); digitalWrite(EXT_POW, LOW);
-
-  // se configura el PPS:
-  pinMode(GPS_PPS, INPUT);
-  *portConfigRegister(GPS_PPS) = PORT_PCR_MUX(1) | PORT_PCR_PE; // INPUT_PULLDOWN
-
-  // se sincroniza el GPS:
-  syncGps();
-}
-//--------------------------------------------------
-void cfgPGA()
-{
-  pinMode(PGA_POW, OUTPUT); digitalWrite(PGA_POW, LOW);
-
-  pinMode(GAIN_CS, OUTPUT); digitalWrite(GAIN_CS, LOW);
-  pinMode(GAIN_A0, OUTPUT); digitalWrite(GAIN_A0, LOW);
-  pinMode(GAIN_A1, OUTPUT); digitalWrite(GAIN_A1, LOW);
-  pinMode(GAIN_A2, OUTPUT); digitalWrite(GAIN_A2, LOW);
-}
 //--------------------------------------------------
 void setPGA(uint8_t gain)
 {
-  gc_cfg.set_gain(gain);
+  geocentinela.c.setGain(gain);
 
   if (!(powMask & PGA_MASK)) return;
 
@@ -643,29 +432,68 @@ void setPGA(uint8_t gain)
   digitalWrite(GAIN_A2, LOW);
 }
 //--------------------------------------------------
-void cfgSD()
+void readCfg()
 {
-  // se configura los IO
-  pinMode(SD_CS, OUTPUT); digitalWrite(SD_CS, LOW);
-  pinMode(SD_MOSI, OUTPUT); digitalWrite(SD_MOSI, LOW);
-  pinMode(SD_MISO, INPUT_PULLUP);
-  pinMode(SD_SCK, OUTPUT); digitalWrite(SD_SCK, LOW);
-
-  // se lee la configuracion desde la sd
-  setPowerUp(SD_MASK); // se enciende la sd
-  while(!gc_cfg.read()) {
-    while(!gc_cfg.write()) {
-      gc_println(PSTR("error: cfg/rw!"));
+  // se lee la configuracion desde la EEPROM
+  while(!geocentinela.read()) {
+    while(!geocentinela.write()) {
+      geocentinela.println(PSTR("error:readCfg: rw"));
       delay(LOG_TIMEOUT);
-      if (gc_cfg.read()) break;
+      if (geocentinela.read()) break;
     }
   }
   gcCfgStat |= GC_CFG_READ;
-  setPowerDown(SD_MASK);
 }
 //--------------------------------------------------
-void cfgGSM()
+time_t getTeensy3Time()
 {
+  return RTC_TSR + geocentinela.getTimeZoneOffset();
+}
+void rtc_seconds_isr(void)
+{
+  setSyncProvider(getTeensy3Time);
+  if (timeStatus() == timeSet) {
+    NVIC_DISABLE_IRQ(IRQ_RTC_SECOND);
+    RTC_IER &= ~0x10;
+
+    geocentinela.println(PSTR("RTC setSyncProvider!"));
+  } else geocentinela.println(PSTR("error: RTC!"));
+}
+void cfgRTC()
+{
+  // set the TSIE bit (Time Seconds Interrupt Enable)
+  RTC_IER |= 0x10;
+  NVIC_ENABLE_IRQ(IRQ_RTC_SECOND);
+  // rtc_seconds_isr();
+}
+//--------------------------------------------------
+void cfgPGA()
+{
+  pinMode(PGA_POW, OUTPUT); digitalWrite(PGA_POW, LOW);
+
+  pinMode(GAIN_CS, OUTPUT); digitalWrite(GAIN_CS, LOW);
+  pinMode(GAIN_A0, OUTPUT); digitalWrite(GAIN_A0, LOW);
+  pinMode(GAIN_A1, OUTPUT); digitalWrite(GAIN_A1, LOW);
+  pinMode(GAIN_A2, OUTPUT); digitalWrite(GAIN_A2, LOW);
+}
+//--------------------------------------------------
+void cfgSD()
+{
+  // se configura la alimentacion
+  pinMode(SDX_POW, OUTPUT);
+  digitalWrite(SDX_POW, LOW);
+  powMask &= ~SD_MASK;
+
+  // se configura los IO
+  pinMode(SD_CS, OUTPUT); digitalWrite(SD_CS, LOW);
+  pinMode(SD_MOSI, OUTPUT); digitalWrite(SD_MOSI, LOW);
+  pinMode(SD_MISO, INPUT);
+  pinMode(SD_SCK, OUTPUT); digitalWrite(SD_SCK, LOW);
+}
+//--------------------------------------------------
+boolean cfgM95()
+{
+  // se configura los IO
   pinMode(XBEE_nSLEEP_ON, INPUT);
   pinMode(XBEE_SLEEP_RQ, INPUT);
   pinMode(XBEE_nRESET, INPUT);
@@ -674,100 +502,26 @@ void cfgGSM()
   pinMode(XBEE_RX, INPUT);
   pinMode(XBEE_TX, INPUT);
 
-  GSM_IO.begin(9600);  
-  pinMode(GSM_W1, OUTPUT);
-  digitalWrite(GSM_W1, LOW);
-  delay(2000);
-  digitalWrite(GSM_W1, HIGH);
-  delay(2000);
-  GSM_IO.write("AT+QPOWD=1\r");
-}
-//--------------------------------------------------
-void cfgXBEE()
-{
-  // se configura los IO
-  pinMode(XBEE_nSLEEP_ON, INPUT);
-  *portConfigRegister(XBEE_nSLEEP_ON) = PORT_PCR_MUX(1) | PORT_PCR_PE; // INPUT_PULLDOWN
+  if (m95.cfg()) {
+    if (!m95.powerStatus()) powMask &= ~M95_MASK;
+    else powMask |= M95_MASK;
 
-  pinMode(XBEE_SLEEP_RQ, OUTPUT); digitalWrite(XBEE_SLEEP_RQ, LOW);
-  pinMode(XBEE_nRESET, OUTPUT); digitalWrite(XBEE_nRESET, LOW);
-
-  pinMode(XBEE_nRTS, OUTPUT); digitalWrite(XBEE_nRTS, LOW);
-  pinMode(XBEE_nCTS, INPUT);
-  *portConfigRegister(XBEE_nCTS) = PORT_PCR_MUX(1) | PORT_PCR_PE; // INPUT_PULLDOWN
-
-  pinMode(XBEE_RX, OUTPUT); digitalWrite(XBEE_RX, LOW);
-  pinMode(XBEE_TX, OUTPUT); digitalWrite(XBEE_TX, LOW);
-  XBEE_IO.begin(9600); XBEE_IO.end();
-
-  // se configura AP=2, SM=1 and BD=8
-  uint32_t bauds[9] = {
-    1200,
-    2400,
-    4800,
-    9600,
-    19200,
-    38400,
-    57600,
-    115200,
-    230400
-  };
-
-  setPowerUp(XBEE_MASK);
-  if (!(powMask & XBEE_MASK)) return;
-
-  uint8_t loop_max = 3;
-  for (int8_t i = 8; i >= 0 && xbeeBD==0; i--) {
-    XBEE_IO.begin(bauds[i]); delay(1050);
-    XBEE_IO.write(PSTR("+++")); delay(1050);
-    uint8_t cmd = 0;
-    while (XBEE_IO.available()) {
-      cmd = XBEE_IO.read();
-      if (cmd == 'O') {
-        if (XBEE_IO.available()) {
-          cmd = XBEE_IO.read();
-          if (cmd == 'K') {
-            XBEE_IO.println(F("ATAP2"));delay(50);
-            XBEE_IO.println(F("ATSM1"));delay(50);
-            XBEE_IO.println(F("ATBD8"));delay(50);
-            XBEE_IO.println(F("ATWR"));delay(50);
-            XBEE_IO.println(F("ATCN"));delay(50);
-
-            xbeeBD = bauds[8];
-            while (XBEE_IO.available()) XBEE_IO.read();
-            XBEE_IO.begin(xbeeBD);
-          }
-        }
-      }
-    }
-
-    if (xbeeBD != 0) {
-      //xbng.begin(XBEE_IO);
-      break;
-    }
-
-    if (i == 0) {
-      gc_println(PSTR("xbee baud rate not detected!, try again..."));
-
-      if (loop_max-- > 0) i = 9;
-    }
+    return true;
   }
-  setPowerDown(XBEE_MASK);
+
+  return false;
 }
 //--------------------------------------------------
-void cfgSDX()
+void cfgGPS()
 {
   // se configura la alimentacion
-  pinMode(SDX_POW, OUTPUT); digitalWrite(SDX_POW, LOW);
+  pinMode(EXT_POW, OUTPUT); digitalWrite(EXT_POW, LOW);
 
-  // se configura el XBEE:
-  //cfgXBEE();
+  // se configura el PPS:
+  pinMode(GPS_PPS, INPUT_PULLDOWN);
 
-  // se configura el GSM
-  cfgGSM();
-
-  // se configura la tarjeta SD:
-  cfgSD();
+  // se sincroniza el GPS:
+  // syncGps();
 }
 //--------------------------------------------------
 void clearDMA()
@@ -790,29 +544,227 @@ void clearDMA()
   gcCfgStat &= ~GC_CFG_DMA;
 }
 //--------------------------------------------------
-#if F_BUS == 60000000
-  #define ADC_CFG1_16BIT  ADC_CFG1_ADIV(2) | ADC_CFG1_ADICLK(1) // 7.5 MHz
-#elif F_BUS == 56000000
-  #define ADC_CFG1_16BIT  ADC_CFG1_ADIV(2) | ADC_CFG1_ADICLK(1) // 7 MHz
+#if F_BUS == 96000000
+  #define ADC_CFG1_16BIT ADC_CFG1_ADIV(2) + ADC_CFG1_ADICLK(1) // 12 MHz
+  #define ADC_CFG1_16BIT_CAL ADC_CFG1_ADIV(3) + ADC_CFG1_ADICLK(1) // 6 MHz
+#elif F_BUS == 60000000
+  #define ADC_CFG1_16BIT ADC_CFG1_ADIV(1) + ADC_CFG1_ADICLK(1) // 15 MHz (overclock)
+  #define ADC_CFG1_16BIT_CAL ADC_CFG1_ADIV(3) + ADC_CFG1_ADICLK(1) // 3.75 MHz
 #elif F_BUS == 48000000
-  #define ADC_CFG1_16BIT  ADC_CFG1_ADIV(1) | ADC_CFG1_ADICLK(1) // 12 MHz
-#elif F_BUS == 40000000
-  #define ADC_CFG1_16BIT  ADC_CFG1_ADIV(1) | ADC_CFG1_ADICLK(1) // 10 MHz
-#elif F_BUS == 36000000
-  #define ADC_CFG1_16BIT  ADC_CFG1_ADIV(1) | ADC_CFG1_ADICLK(1) // 9 MHz
+  #define ADC_CFG1_16BIT  ADC_CFG1_ADIV(1) | ADC_CFG1_ADICLK(1) // 12MHz
+  #define ADC_CFG1_16BIT_CAL ADC_CFG1_ADIV(3) | ADC_CFG1_ADICLK(1) // 3MHz
 #elif F_BUS == 24000000
-  #define ADC_CFG1_16BIT  ADC_CFG1_ADIV(1) | ADC_CFG1_ADICLK(0) // 12 MHz
-#elif F_BUS == 16000000
-  #define ADC_CFG1_16BIT  ADC_CFG1_ADIV(0) | ADC_CFG1_ADICLK(0) // 8 MHz
-#elif F_BUS == 8000000
-  #define ADC_CFG1_16BIT  ADC_CFG1_ADIV(0) | ADC_CFG1_ADICLK(0) // 8 MHz
-#elif F_BUS == 4000000
-  #define ADC_CFG1_16BIT  ADC_CFG1_ADIV(0) | ADC_CFG1_ADICLK(0) // 4 MHz
-#elif F_BUS == 2000000
-  #define ADC_CFG1_16BIT  ADC_CFG1_ADIV(0) | ADC_CFG1_ADICLK(0) // 2 MHz
+  #define ADC_CFG1_16BIT  ADC_CFG1_ADIV(1) | ADC_CFG1_ADICLK(0) // 12MHz
+  #define ADC_CFG1_16BIT_CAL ADC_CFG1_ADIV(3) | ADC_CFG1_ADICLK(0) // 3MHz
 #else
-#error "F_BUS must be 60, 56, 48, 40, 36, 24, 4 or 2 MHz"
+#error "F_BUS must be 96, 60, 48 or 24 MHz"
 #endif
+
+// general configuration
+#define GC_ADC_CFG1 0 \
+    /* | ADC_CFG1_ADLPC     /* lower power: off, on */ \
+    /* | ADC_CFG1_ADIV(1)   /  clock divide: 1, 2, 4, 8 */ \
+    /* | ADC_CFG1_ADLSMP    /* sample time: short, long */ \
+    | ADC_CFG1_MODE(3)      /* bit resolution mode: 8, 12, 10, 16 */ \
+    /* | ADC_CFG1_ADICLK(1) / input clock: bus, bus/2, alternate, asynchronous */ \
+    | ADC_CFG1_16BIT        /* set adc_clock, i.e: ADC_CFG1_ADIV and ADC_CFG1_ADICLK */
+
+#define GC_ADC_CFG2 0 \
+    | ADC_CFG2_MUXSEL    /* adc mux (see man. pag. 98 Connections/Channel Assignment): ADxxa, ADxxb */ \
+    /*| ADC_CFG2_ADACKEN   /* asynchronous clock output: disable, enable */ \
+    | ADC_CFG2_ADHSC     /* high speed configuration: normal, high */ \
+    | ADC_CFG2_ADLSTS(0) /* long sample time: 20ext, 12ext, 6ext, 2ext */
+
+// control
+#define GC_ADC_SC2 0 \
+    /* | ADC_SC2_ADTRG                 / trigger select: software, hardware */ \
+    /* | ADC_SC2_ACFE                  / compare function: disable, enable */ \
+    /* | ADC_SC2_ACFGT                 / compare function greater than: disable, enable */ \
+    /* | ADC_SC2_ACREN                 / compare function range: disable, enable */ \
+    /* | ADC_SC2_DMAEN                 / DMA enable */ \
+    | ADC_SC2_REFSEL(GC_ADC_REFSEL) /* 0->3.3v, 1->1.2v */
+
+#define GC_ADC_SC3 0 \
+      /* | ADC_SC3_ADCO    / continuous conversion: disable, enable */ \
+      | ADC_SC3_AVGE    /* enable hardware average */ \
+      | ADC_SC3_AVGS(3) /* average select: 0->4, 1->8, 2->16, 3->32 4->0 */
+
+#define NAVERAGE 1024 // < 65536
+#define NLOOPS 8 // < 65536
+
+void calADC0()
+{
+  // ADC clock
+  SIM_SCGC6 |= SIM_SCGC6_ADC0;
+
+  // general configuration
+  ADC0_CFG1 = 0
+    | ADC_CFG1_ADLSMP
+    | ADC_CFG1_MODE(3)
+    | ADC_CFG1_16BIT_CAL;
+  ADC0_CFG2 = GC_ADC_CFG2;
+
+  // control
+  ADC0_SC2 = GC_ADC_SC2;
+  ADC0_SC3 = GC_ADC_SC3;
+
+  uint32_t pMask = powMask;
+
+  PMC_REGSC |= PMC_REGSC_BGBE;
+  setPowerUp(PGA_MASK);
+  delay(1000);
+
+  // calibration
+  ADC0_SC3 |= ADC_SC3_CAL; // begin cal
+
+  uint16_t cal_sum;
+  while ((ADC0_SC3 & ADC_SC3_CAL) and (ADC0_SC1A & ADC_SC1_COCO));
+
+  cal_sum = (ADC0_CLPS + ADC0_CLP4 + ADC0_CLP3 + ADC0_CLP2 + ADC0_CLP1 + ADC0_CLP0)/2;
+  ADC0_PG = cal_sum | 0x8000;
+
+  cal_sum = (ADC0_CLMS + ADC0_CLM4 + ADC0_CLM3 + ADC0_CLM2 + ADC0_CLM1 + ADC0_CLM0)/2;
+  ADC0_MG = cal_sum | 0x8000;
+
+#if 1
+  // autozero:
+  uint32_t vavrg = 2;
+  for (uint16_t j = 0; j < NLOOPS and vavrg > 1; j++) {
+    vavrg = 0;
+    for (uint16_t i = 0; i < NAVERAGE; i++) {
+      ADC0_SC1A = ADC_SC1_ADCH(GC_ADC0_AZ);
+      while (!(ADC0_SC1A & ADC_SC1_COCO));
+      vavrg += ADC0_RA;
+    }
+    vavrg /= NAVERAGE;
+
+    boolean ofs_sig = vavrg > (uint32_t)GC_ADC0_AZV;
+    if (ofs_sig) {
+      vavrg = (vavrg - (uint32_t)GC_ADC0_AZV);
+      ADC0_OFS +=  ((int16_t)(vavrg >> 1));
+    } else {
+      vavrg = ((uint32_t)GC_ADC0_AZV - vavrg);
+      ADC0_OFS += -((int16_t)(vavrg >> 1));
+    }
+  }
+#endif
+
+  // Stop conversion
+  ADC0_SC1A = ADC_SC1_ADCH(0b11111);
+
+  setPowerDown(~pMask);
+  setPowerUp(pMask);
+  PMC_REGSC &= ~PMC_REGSC_BGBE;
+}
+
+void calADC1()
+{
+  // ADC clock
+  SIM_SCGC3 |= SIM_SCGC3_ADC1;
+
+  // general configuration
+  ADC1_CFG1 = 0
+    | ADC_CFG1_ADLSMP
+    | ADC_CFG1_MODE(3)
+    | ADC_CFG1_16BIT_CAL;
+  ADC1_CFG2 = GC_ADC_CFG2;
+
+  // control
+  ADC1_SC2 = GC_ADC_SC2;
+  ADC1_SC3 = GC_ADC_SC3;
+
+  uint32_t pMask = powMask;
+
+  PMC_REGSC |= PMC_REGSC_BGBE;
+  setPowerUp(PGA_MASK);
+
+  // calibration
+  ADC1_SC3 |= ADC_SC3_CAL; // begin cal
+
+  uint16_t cal_sum;
+  while ((ADC1_SC3 & ADC_SC3_CAL) and (ADC1_SC1A & ADC_SC1_COCO));
+
+  cal_sum = (ADC1_CLPS + ADC1_CLP4 + ADC1_CLP3 + ADC1_CLP2 + ADC1_CLP1 + ADC1_CLP0)/2;
+  ADC1_PG = cal_sum | 0x8000;
+
+  cal_sum = (ADC1_CLMS + ADC1_CLM4 + ADC1_CLM3 + ADC1_CLM2 + ADC1_CLM1 + ADC1_CLM0)/2;
+  ADC1_MG = cal_sum | 0x8000;
+
+#if TRIGGER_BY_SOFTWARE == 0
+  // autozero:
+  uint32_t vavrg = 2;
+  for (uint16_t j = 0; j < NLOOPS and vavrg > 1; j++) {
+    vavrg = 0;
+    for (uint16_t i = 0; i < NAVERAGE; i++) {
+      ADC1_SC1A = ADC_SC1_ADCH(GC_ADC1_AZ);
+      while (!(ADC1_SC1A & ADC_SC1_COCO));
+      vavrg += ADC1_RA;
+    }
+    vavrg /= NAVERAGE;
+    boolean ofs_sig = vavrg > (uint32_t)GC_ADC1_AZV;
+    if (ofs_sig) {
+      vavrg = (vavrg - (uint32_t)GC_ADC1_AZV);
+      ADC1_OFS +=  ((int16_t)(vavrg >> 1));
+    } else {
+      vavrg = ((uint32_t)GC_ADC1_AZV - vavrg);
+      ADC1_OFS += -((int16_t)(vavrg >> 1));
+    }
+  }
+#endif
+
+  // Stop conversion
+  ADC1_SC1A = ADC_SC1_ADCH(0b11111);
+
+  setPowerDown(~pMask);
+  setPowerUp(pMask);
+  PMC_REGSC &= ~PMC_REGSC_BGBE;
+}
+
+void cfgADC0()
+{
+  // general configuration
+  ADC0_CFG1 = GC_ADC_CFG1;
+  ADC0_CFG2 = GC_ADC_CFG2;
+
+  // control
+  ADC0_SC2 = GC_ADC_SC2 | ADC_SC2_DMAEN; // DMA enable
+
+  uint32_t sc3 = 0; // continuous conversion disable, hardware average disable
+  if (geocentinela.c.getHardwareAverage() < 4) {
+    sc3 = 0
+      //| ADC_SC3_ADCO                 // continuous conversion: disable, enable
+      | ADC_SC3_AVGE                 // enable hardware average
+      | ADC_SC3_AVGS(geocentinela.c.getHardwareAverage()) // average select: 0->4, 1->8, 2->16, 3->32
+    ;
+  }
+  ADC0_SC3 = sc3;
+}
+
+void cfgADC1()
+{
+  // general configuration
+  ADC1_CFG1 = GC_ADC_CFG1;
+  ADC1_CFG2 = GC_ADC_CFG2;
+
+  // control
+#if TRIGGER_BY_SOFTWARE == 0
+  if (0 == geocentinela.c.getTriggerLevel() or 0 == geocentinela.c.getTriggerTime()) {
+    ADC1_SC2 = GC_ADC_SC2;
+
+    ADC1_CV1 = 0;
+    ADC1_CV2 = 0;
+  } else {
+    ADC1_SC2 = ADC_SC2_ACFE | ADC_SC2_ACFGT | ADC_SC2_ACREN | ADC_SC2_DMAEN | GC_ADC_SC2;
+
+    ADC1_CV1 = 0x0000 + (geocentinela.c.getTriggerLevel()+1);
+    ADC1_CV2 = 0xFFFF - geocentinela.c.getTriggerLevel();
+  }
+#else
+  ADC1_SC2 = GC_ADC_SC2;
+#endif
+  ADC1_SC3 = GC_ADC_SC3;
+}
+
 boolean cfgADC()
 {
   if (!(gcCfgStat & GC_CFG_READ)) {
@@ -822,9 +774,6 @@ boolean cfgADC()
 
   // clear DMA:
   clearDMA();
-
-  // ADC clock
-  SIM_SCGC6 |= SIM_SCGC6_ADC0;
 
   // vref:
 #if GC_ADC_REFSEL == 1
@@ -843,148 +792,13 @@ boolean cfgADC()
   VREF_SC = 0;
 #endif
 
-  // general configuration
-  uint32_t cfg1 = 0
-    //| ADC_CFG1_ADLPC     // lower power: off, on
-    //| ADC_CFG1_ADIV(1)   // clock divide: 1, 2, 4, 8
-    //| ADC_CFG1_ADLSMP    // sample time: short, long
-    | ADC_CFG1_MODE(3)   // conversion mode: 8, 12, 10, 16
-    //| ADC_CFG1_ADICLK(1) // input clock: bus, bus/2, alternate, asynchronous
-    | ADC_CFG1_16BIT       // set adc_clock, i.e: ADC_CFG1_ADIV and ADC_CFG1_ADICLK
-  ;
-  ADC0_CFG1 = cfg1;
+  // ADC0
+  calADC0();
+  cfgADC0();
 
-  uint32_t cfg2 = 0
-    | ADC_CFG2_MUXSEL    // adc mux (see man. pag. 98 Connections/Channel Assignment): ADxxa, ADxxb
-    //| ADC_CG2_ADACKEN    // asynchronous clock output: disable, enable
-    | ADC_CFG2_ADHSC     // high speed configuration: normal, high
-    | ADC_CFG2_ADLSTS(0) // long sample time: 20ext, 12ext, 6ext, 2ext
-  ;
-  ADC0_CFG2 = cfg2;
-
-  // control
-  uint32_t sc2 = 0
-    //| ADC_SC2_ADTRG                 // trigger select: software, hardware
-    //| ADC_SC2_ACFE                  // compare function: disable, enable
-    //| ADC_SC2_ACFGT                 // compare function greater than: disable, enable
-    //| ADC_SC2_ACREN                 // compare function range: disable, enable
-    | ADC_SC2_DMAEN                 // DMA enable
-    | ADC_SC2_REFSEL(GC_ADC_REFSEL) // 0->3.3v, 1->1.2v
-  ;
-  ADC0_SC2 = sc2;
-
-  uint32_t sc3 = 0; // continuous conversion disable, hardware average disable
-  if (gc_cfg.average < 4) {
-    sc3 = 0
-      //| ADC_SC3_ADCO                 // continuous conversion: disable, enable
-      | ADC_SC3_AVGE                 // enable hardware average
-      | ADC_SC3_AVGS(gc_cfg.average) // average select: 0->4, 1->8, 2->16, 3->32
-    ;
-  }
-  ADC0_SC3 = sc3;
-
-  uint32_t pMask = powMask;
-
-  PMC_REGSC |= PMC_REGSC_BGBE;
-  setPowerUp(PGA_MASK);
-
-  // calibration
-  ADC0_SC3 |= ADC_SC3_CAL; // begin cal
-
-  uint16_t cal_sum;
-  while ((ADC0_SC3 & ADC_SC3_CAL) && (ADC0_SC1A & ADC_SC1_COCO));
-
-  cal_sum = (ADC0_CLPS + ADC0_CLP4 + ADC0_CLP3 + ADC0_CLP2 + ADC0_CLP1 + ADC0_CLP0)/2;
-  ADC0_PG = cal_sum | 0x8000;
-
-  cal_sum = (ADC0_CLMS + ADC0_CLM4 + ADC0_CLM3 + ADC0_CLM2 + ADC0_CLM1 + ADC0_CLM0)/2;
-  ADC0_MG = cal_sum | 0x8000;
-
-#define NAVERAGE 5000
-#define NLOOPS 3
-  uint32_t vavrg = 0;
-  // set offset:
-  ADC0_OFS = 0;
-  for (uint16_t j = 0; j < NLOOPS || vavrg != 0; j++) {
-    vavrg = 0;
-    for (uint16_t i = 0; i < NAVERAGE; i++) {
-      ADC0_SC1A = ADC_SC1_ADCH(GC_ADC0_AZ);
-      while ((ADC0_SC1A & ADC_SC1_COCO)==0);
-      vavrg += ADC0_RA;
-    }
-    vavrg /= NAVERAGE;
-    boolean ofs_sig = vavrg > (uint32_t)GC_ADC0_AZV;
-    if (ofs_sig) {
-      vavrg = (vavrg - (uint32_t)GC_ADC0_AZV) >> 1;
-      ADC0_OFS +=  ((int16_t)vavrg);
-    } else {
-      vavrg = ((uint32_t)GC_ADC0_AZV - vavrg) >> 1;
-      ADC0_OFS += -((int16_t)vavrg);
-    }
-  }
-
-  // Stop conversion
-  ADC0_SC1A = ADC_SC1_ADCH(0b11111);
-
-#if TRIGGER_BY_SOFTWARE == 0
-  // ADC clock
-  SIM_SCGC3 |= SIM_SCGC3_ADC1;
-
-  // general configuration
-  ADC1_CFG1 = cfg1;
-  ADC1_CFG2 = cfg2;
-
-  // control
-  if (gc_cfg.trigger_level > 0 || gc_cfg.trigger_time_number > 0) {
-    ADC1_SC2 = ADC_SC2_ACFE | ADC_SC2_ACFGT | ADC_SC2_ACREN | sc2;
-
-    ADC1_CV1 = 0x0000 + (gc_cfg.trigger_level+1);
-    ADC1_CV2 = 0xFFFF - gc_cfg.trigger_level;
-  } else {
-    ADC1_SC2 = sc2;
-
-    ADC1_CV1 = 0;
-    ADC1_CV2 = 0;
-  }
-  ADC1_SC3 = sc3;
-
-  // calibration
-  ADC1_SC3 |= ADC_SC3_CAL; // begin cal
-  while ((ADC1_SC3 & ADC_SC3_CAL) && (ADC1_SC1A & ADC_SC1_COCO));
-
-  cal_sum = (ADC1_CLPS + ADC1_CLP4 + ADC1_CLP3 + ADC1_CLP2 + ADC1_CLP1 + ADC1_CLP0)/2;
-  ADC1_PG = cal_sum | 0x8000;
-
-  cal_sum = (ADC1_CLMS + ADC1_CLM4 + ADC1_CLM3 + ADC1_CLM2 + ADC1_CLM1 + ADC1_CLM0)/2;
-  ADC1_MG = cal_sum | 0x8000;
-
-  // set offset:
-  ADC1_OFS = 0;
-  for (uint16_t j = 0; j < NLOOPS || vavrg != 0; j++) {
-    vavrg = 0;
-    for (uint16_t i = 0; i < NAVERAGE; i++) {
-      ADC1_SC1A = ADC_SC1_ADCH(GC_ADC1_AZ);
-      while ((ADC1_SC1A & ADC_SC1_COCO)==0);
-      vavrg += ADC1_RA;
-    }
-    vavrg /= NAVERAGE;
-    boolean ofs_sig = vavrg > (uint32_t)GC_ADC1_AZV;
-    if (ofs_sig) {
-      vavrg = (vavrg - (uint32_t)GC_ADC1_AZV) >> 1;
-      ADC1_OFS +=  ((int16_t)vavrg);
-    } else {
-      vavrg = ((uint32_t)GC_ADC1_AZV - vavrg) >> 1;
-      ADC1_OFS += -((int16_t)vavrg);
-    }
-  }
-
-  // Stop conversion
-  ADC1_SC1A = ADC_SC1_ADCH(0b11111);
-#endif
-
-  setPowerDown(~pMask);
-  setPowerUp(pMask);
-  PMC_REGSC &= ~PMC_REGSC_BGBE;
+  // ADC1
+  calADC1();
+  cfgADC1();
 
   gcCfgStat |= GC_CFG_ADC;
   return true;
@@ -1004,7 +818,7 @@ void cfgDMA()
   DMA_CR |= DMA_CR_ERCA; // enable round robin scheduling
 
   // configure the DMA transfer control descriptor 2
-  DMA_TCD2_SADDR = &(adc_config[1]);
+  DMA_TCD2_SADDR = &(adc_config[1]); // ADC0_ch1
   DMA_TCD2_SOFF = 4; // Nº bytes between data
   DMA_TCD2_ATTR = 0
     | DMA_TCD_ATTR_SMOD(0)
@@ -1067,7 +881,7 @@ void cfgDMA()
 
 #if TRIGGER_BY_SOFTWARE == 0
   // configure the DMA transfer control descriptor 3
-  DMA_TCD3_SADDR = &(adc_config[1]);
+  DMA_TCD3_SADDR = &(adc_config[9]); ADC1_ch1
   DMA_TCD3_SOFF = 4; // Nº bytes between data
   DMA_TCD3_ATTR = 0
     | DMA_TCD_ATTR_SMOD(0)
@@ -1115,16 +929,16 @@ float getTemp()
 
   // Se lee la temperatura
   uint32_t bvalue = 0;
-  uint16_t n = 1000;
+  uint16_t n = 1000; // < 2**16
   for(uint16_t i = 0; i < n; i++) {
-    ADC0_SC1A = adc_config[8];
+    ADC0_SC1A = ADC_SC1_ADCH(GC_ADC_TEMP);
     while(!(ADC0_SC1A & ADC_SC1_COCO));
+
     bvalue += ADC0_RA;
   }
-  bvalue /= n;
 
   // se para la conversion
-  ADC0_SC1A = adc_config[3];
+  ADC0_SC1A = ADC_SC1_ADCH(0b11111); // stop == 0b11111
 
   // Si estaba apagado el PGA se apaga:
   setPowerDown(~pMask);
@@ -1133,8 +947,8 @@ float getTemp()
   // se reconecta el DMA
   cfgDMA();
 
-  float mV_value = 2500.0*bvalue/65536.0;
-  return 25.0-((mV_value-719)/1.715);// Temp = 25 - ((mV_temp - mV_temp25)/m)
+  float mV_value = GC_ADC_VREF*(bvalue/(65536.0*n));
+  return 25.0+((719 - mV_value)/1.715);// Temp = 25 - ((mV_temp - mV_temp25)/m)
 }
 //----------------------------------------------------------------------
 float getVBat()
@@ -1152,14 +966,14 @@ float getVBat()
   uint32_t bvalue = 0;
   uint16_t n = 1000;
   for(uint16_t i = 0; i < n; i++) {
-    ADC0_SC1A = adc_config[4];
+    ADC0_SC1A = ADC_SC1_ADCH(GC_ADC0_BAT);; // ADC?_BAT
     while(!(ADC0_SC1A & ADC_SC1_COCO));
+
     bvalue += ADC0_RA;
   }
-  bvalue /= n;
 
   // se para la conversion
-  ADC0_SC1A = adc_config[3];
+  ADC0_SC1A = ADC_SC1_ADCH(0b11111); // stop == 0b11111
 
   // Si estaba apagado el PGA se apaga:
   setPowerDown(~pMask);
@@ -1168,7 +982,7 @@ float getVBat()
   // se reconecta el DMA
   cfgDMA();
 
-  float mV_value = 2.5*bvalue/65536.0;
+  float mV_value = (GC_ADC_VREF/1000.0)*(bvalue/(65536.0*n));
   return 21*mV_value;
 }
 //----------------------------------------------------------------------
@@ -1198,15 +1012,16 @@ uint32_t deep_sleep()
 
   // sleep
   uint32_t pMask = powMask;
-  setPowerDown(SD_MASK|XBEE_MASK|PGA_MASK|EXT_MASK);
+  setPowerDown(ALL_MASK);
+
   lp.DeepSleep(&lp_cfg);
+
   setPowerDown(~pMask);
   setPowerUp(pMask);
 
   return 0;
 }
 
-boolean gcSendPPV();
 uint32_t sleep_chrono()
 {
   if (!(gcCfgStat & GC_CFG_READ)) return 0;
@@ -1224,67 +1039,36 @@ uint32_t sleep_chrono()
   lp_cfg.gpio_pin = WAKE_USB;
 
   // RTC alarm wakeup in seconds:
-  lp_cfg.rtc_alarm = gc_cfg.time_begin_seg;
-  uint32_t dseg = gc_cfg.time_end_seg;
-
-  // sending triggers:
-  if (gc_cfg.ppv_send_time > 0) {
-    const uint32_t time_ini = Teensy3Clock.get();
-    const int32_t rtc_alarm_orig = lp_cfg.rtc_alarm;
-
-    boolean sended = false;
-    int32_t rtc_alarm = rtc_alarm_orig;
-
-    // gc_cfg.ppv_send_time < 86400
-    while ((rtc_alarm > (int32_t)gc_cfg.ppv_send_time) && !sended) {
-      uint32_t t_ini = Teensy3Clock.get();
-      if (HIGH == digitalRead(PIN_USB)) return 0;
-      sended = gcSendPPV();
-      uint32_t t_end = Teensy3Clock.get();
-
-      if ((gc_cfg.ppv_send_time > (t_end-t_ini)) && !sended) {
-        lp_cfg.rtc_alarm = gc_cfg.ppv_send_time - (t_end-t_ini);
-
-        uint32_t pMask = powMask;
-        setPowerDown(SD_MASK|XBEE_MASK|PGA_MASK|EXT_MASK);
-        lp.DeepSleep(&lp_cfg);
-        setPowerDown(~pMask);
-        setPowerUp(pMask);
-
-        if (lp_cfg.wake_source == WAKE_USB) {
-          return 0;
-        }
-      }
-
-      uint32_t time_end = Teensy3Clock.get();
-      rtc_alarm = rtc_alarm_orig - (int32_t)(time_end-time_ini);
-    }
-    lp_cfg.rtc_alarm = max(rtc_alarm, 0);
-  }
+  lp_cfg.rtc_alarm = geocentinela.c.getTimeBegin();
+  uint32_t dseg = geocentinela.c.getTimeEnd();
 
   if (HIGH == digitalRead(PIN_USB)) return 0;
-  // sleep
+
   if (lp_cfg.rtc_alarm > 0) {
     uint32_t pMask = powMask;
-    setPowerDown(SD_MASK|XBEE_MASK|PGA_MASK|EXT_MASK);
+    setPowerDown(ALL_MASK);
+
     lp.DeepSleep(&lp_cfg);
+
     setPowerDown(~pMask);
     setPowerUp(pMask);
 
     if (lp_cfg.wake_source == WAKE_USB) {
       return 0;
-    } else {
-      // sync RTC with the GPS
-      syncGps();
     }
   }
 
-  return dseg*(1000000/gc_cfg.tick_time_useg);
+  if (HIGH == digitalRead(PIN_USB)) return 0;
+
+  return dseg*(1000000/geocentinela.c.getTickTime());
 }
 
+boolean gcSyncEvents(boolean & updated_cfg);
 uint32_t sleep_daily()
 {
   if (!(gcCfgStat & GC_CFG_READ)) return 0;
+
+  boolean sended = false;
 
   // reset lp_cfg
   memset(&lp_cfg, 0, sizeof(sleep_block_t));
@@ -1298,476 +1082,1159 @@ uint32_t sleep_daily()
   // GPIO alarm wakeup
   lp_cfg.gpio_pin = WAKE_USB;
 
-  uint32_t time_n = Teensy3Clock.get() % SEG_A_DAY;
+begin_daily:
+  if (HIGH == digitalRead(PIN_USB)) return 0;
+
+  // sync:
+  if (geocentinela.getGprs()) {
+    boolean updated_cfg = false;
+    boolean sync_events = gcSyncEvents(updated_cfg);
+
+    if (updated_cfg) setup();
+    if (!sended) sended = sync_events;
+
+    if (HIGH == digitalRead(PIN_USB)) return 0;
+  }
+
+  // times in local:
+  uint32_t time_begin = geocentinela.c.getTimeBegin();
+  uint32_t time_end = geocentinela.c.getTimeEnd();
+
+  // times to UTC
+  time_begin += (uint32_t)(SEG_A_DAY - geocentinela.getTimeZoneOffset());
+  time_end += (uint32_t)(SEG_A_DAY - geocentinela.getTimeZoneOffset());
+
+  // times to SEG_A_DAY
+  time_begin %= SEG_A_DAY;
+  time_end %= SEG_A_DAY;
+
+  // set alarm:
+  uint32_t time_now = RTC_TSR % SEG_A_DAY;
   uint32_t dseg = 0;
 
   // RTC alarm wakeup in seconds:
-  if (gc_cfg.time_begin_seg < gc_cfg.time_end_seg) {
-    dseg = gc_cfg.time_end_seg - gc_cfg.time_begin_seg;
-    if (time_n <= gc_cfg.time_begin_seg) {
-      lp_cfg.rtc_alarm = gc_cfg.time_begin_seg - time_n;
-    } else if (time_n >= gc_cfg.time_end_seg) {
-      lp_cfg.rtc_alarm = (gc_cfg.time_begin_seg + SEG_A_DAY) - time_n;
+  if (time_begin < time_end) {
+    dseg = time_end - time_begin;
+    if (time_now <= time_begin) {
+      lp_cfg.rtc_alarm = time_begin - time_now;
+    } else if (time_now >= time_end) {
+      lp_cfg.rtc_alarm = (time_begin + SEG_A_DAY) - time_now;
     } else {
       lp_cfg.rtc_alarm = 0;
-      dseg = gc_cfg.time_end_seg - time_n;
+      dseg = time_end - time_now;
     }
   } else {
-    if (time_n < gc_cfg.time_end_seg) {
+    if (time_now < time_end) {
       lp_cfg.rtc_alarm = 0;
-      dseg = gc_cfg.time_end_seg - time_n;
-    } else if (time_n > gc_cfg.time_begin_seg) {
+      dseg = time_end - time_now;
+    } else if (time_now > time_begin) {
       lp_cfg.rtc_alarm = 0;
-      dseg = (gc_cfg.time_end_seg + SEG_A_DAY) - time_n;
+      dseg = (time_end + SEG_A_DAY) - time_now;
     } else {
-      lp_cfg.rtc_alarm = gc_cfg.time_begin_seg - time_n;
-      dseg = (gc_cfg.time_end_seg + SEG_A_DAY) - gc_cfg.time_begin_seg;
+      lp_cfg.rtc_alarm = time_begin - time_now;
+      dseg = (time_end + SEG_A_DAY) - time_begin;
     }
   }
 
-  // sending triggers:
-  if (gc_cfg.ppv_send_time > 0) {
-    const uint32_t time_ini = Teensy3Clock.get();
-    const int32_t rtc_alarm_orig = lp_cfg.rtc_alarm;
+  if (0 == lp_cfg.rtc_alarm) return dseg*(1000000.0/geocentinela.c.getTickTime());
 
-    boolean sended = false;
-    int32_t rtc_alarm = rtc_alarm_orig;
+  // fix rtc_alarm
+  if (geocentinela.getGprs() and !sended) {
+    if (lp_cfg.rtc_alarm > geocentinela.c.getSendTriggerTime()) {
+      lp_cfg.rtc_alarm = geocentinela.c.getSendTriggerTime();
+    }
+  }
 
-    // gc_cfg.ppv_send_time < 86400
-    while ((rtc_alarm > (int32_t)gc_cfg.ppv_send_time) && !sended) {
-      uint32_t t_ini = Teensy3Clock.get();
-      if (HIGH == digitalRead(PIN_USB)) return 0;
-      sended = gcSendPPV();
-      uint32_t t_end = Teensy3Clock.get();
+  if (0 == lp_cfg.rtc_alarm) goto begin_daily;
 
-      if ((gc_cfg.ppv_send_time > (t_end-t_ini)) && !sended) {
-        lp_cfg.rtc_alarm = gc_cfg.ppv_send_time - (t_end-t_ini);
+  // sleep:
+  uint32_t pMask = powMask;
+  setPowerDown(ALL_MASK);
 
-        uint32_t pMask = powMask;
-        setPowerDown(SD_MASK|XBEE_MASK|PGA_MASK|EXT_MASK);
-        lp.DeepSleep(&lp_cfg);
-        setPowerDown(~pMask);
-        setPowerUp(pMask);
+  lp.DeepSleep(&lp_cfg);
 
-        if (lp_cfg.wake_source == WAKE_USB) {
-          return 0;
-        }
+  setPowerDown(~pMask);
+  setPowerUp(pMask);
+
+  goto begin_daily;
+}
+//----------------------------------------------------------------------
+boolean syncSensor()
+{
+  if (!geocentinela.getGprs()) return false;
+  if (!(powMask & M95_MASK)) return false;
+
+  uint8_t sync_cnt = 0;
+  boolean to_search;
+
+  uint8_t rest_size = 29;
+  char rest[rest_size];
+
+try_sensor:
+  to_search = true;
+  if (sync_cnt >= 3) return false;
+
+  // set default name:
+  if (0 == strlen(geocentinela.s.getName())) {
+    uint32_t oldTimeStamp = geocentinela.s.getUpdatedAt();
+
+    uint32_t name_size = 9*4;
+    char name[name_size];
+    snprintf(name, name_size, "%lx.%lx.%lx.%lx", SIM_UIDH, SIM_UIDMH, SIM_UIDML, SIM_UIDL);
+    geocentinela.s.setName(name);
+
+    geocentinela.s.setUpdatedAt(oldTimeStamp);
+  }
+
+post_sensor:
+  if (sync_cnt >= 3) return false;
+
+  if (!to_search) {
+    float lng, lat, cta;
+    geocentinela.s.getLocation(lng, lat, cta);
+    if (0.0 == lng and 0.0 == lat and 0.0 == cta and m95.cellloc(lng, lat)) {
+      srandom(micros());
+      cta = random(1000, 100000)/1000.0;
+      geocentinela.s.setLocation(lng, lat, cta);
+    }
+  }
+
+  snprintf(rest, rest_size, "POST /sensors"); // len(rest)=14
+
+put_sensor:
+  if (sync_cnt >= 3) return false;
+
+  // jsonificando en el buffer
+  m95.cleanStringIO();
+  geocentinela.s.serialize(m95.getStringIO(), m95.getStringIOLength(),
+                           (uint8_t*)adc_ring_buffer, GC_ADC_RING_SIZE_BYTES, to_search);
+
+  // enviando...
+  uint16_t stateHTTP = m95.httpJsonREST(geocentinela.getHostName(), rest);
+
+  // guardando...
+  if (1 == (stateHTTP & 0x1) and (stateHTTP >> 1) > 0) {
+    rSensor s;
+    s.set(geocentinela.s);
+
+    Serial.print("0_locat_s:");Serial.println(geocentinela.s.getUpdatedAt());
+    Serial.print("0_new_s:");Serial.println(s.getUpdatedAt());
+
+    if (s.deserialize(m95.getStringIO(), (uint8_t*)adc_ring_buffer, GC_ADC_RING_SIZE_BYTES)) {
+      if (0 == geocentinela.s.getId()) geocentinela.s.setId(s.getId());
+
+    Serial.print("1_locat_s:");Serial.println(geocentinela.s.getUpdatedAt());
+    Serial.print("1_new_s:");Serial.println(s.getUpdatedAt());
+
+      if (!geocentinela.s.updatedAt(s.getUpdatedAt())) {
+        geocentinela.s.set(s);
+        geocentinela.write();
+      } else if (!s.updatedAt(geocentinela.s.getUpdatedAt())) {
+        snprintf(rest, rest_size, "PUT /sensors/%lu.json", geocentinela.s.getId()); // len(rest)<=29
+
+        to_search = false;
+
+        // enviando...
+        goto put_sensor;
+      }
+    } else {
+      sync_cnt++;
+
+      if (422 == (stateHTTP >> 1)) {
+        to_search = false;
+        goto post_sensor;
       }
 
-      uint32_t time_end = Teensy3Clock.get();
-      rtc_alarm = rtc_alarm_orig - (int32_t)(time_end-time_ini);
+      goto try_sensor;
     }
-    lp_cfg.rtc_alarm = max(rtc_alarm, 0);
-  }
+  } else return false;
 
-  if (HIGH == digitalRead(PIN_USB)) return 0;
-  // sleep
-  if (lp_cfg.rtc_alarm > 0) {
-    uint32_t pMask = powMask;
-    setPowerDown(SD_MASK|XBEE_MASK|PGA_MASK|EXT_MASK);
-    lp.DeepSleep(&lp_cfg);
-    setPowerDown(~pMask);
-    setPowerUp(pMask);
-
-    if (lp_cfg.wake_source == WAKE_USB) {
-      return 0;
-    } else { // GPS rtc sync first!
-      // sync RTC with the GPS
-      syncGps();
-    }
-  }
-
-  return dseg*(1000000/gc_cfg.tick_time_useg);
+  return true;
 }
 //----------------------------------------------------------------------
-uint16_t WaitOfReaction(uint16_t timeout)
+boolean syncConfigure(boolean & updated_cfg)
 {
-  uint8_t index = 0;
-  uint8_t inByte = 0;
-  char WS[3];
+  if (!geocentinela.getGprs()) return false;
+  if (!(powMask & M95_MASK)) return false;
 
-  //----- erase GSM_string
-  memset(GSM_string, 0, GSM_BUFFER_SIZE);
-  memset(WS, 0, 3);
+  uint8_t sync_cnt = 0;
+  boolean to_search;
 
-  //----- wait of the first character for "timeout" ms
-  GSM_IO.setTimeout(timeout);
-  inByte = GSM_IO.readBytes(WS, 1);
+  uint8_t rest_size = 32;
+  char rest[rest_size];
 
-  //----- wait of further characters until a pause of 30 ms occures
-  while(inByte > 0)
-  {
-    GSM_string[index++] = WS[0];
+try_configure:
+  to_search = true;
+  if (sync_cnt >= 3) return false;
 
-    GSM_IO.setTimeout(30);
-    inByte = GSM_IO.readBytes(WS, 1);
+  // set default name:
+  if (0 == strlen(geocentinela.c.getName())) {
+    uint32_t oldTimeStamp = geocentinela.c.getUpdatedAt();
+
+    uint32_t name_size = 9*4;
+    char name[name_size];
+    snprintf(name, name_size, "%lx.%lx.%lx.%lx", SIM_UIDH, SIM_UIDMH, SIM_UIDML, SIM_UIDL);
+    geocentinela.c.setName(name);
+
+    geocentinela.c.setUpdatedAt(oldTimeStamp);
   }
 
-  //----- analyse the reaction of the mobile module
-  if(strstr(GSM_string, "NORMAL POWER DOWN"))     { return 19; }
-  if(strstr(GSM_string, "RDY"))                   { return 20; }
+post_configure:
+  if (sync_cnt >= 3) return false;
 
-  if(strstr(GSM_string, "+CPIN: READY"))          { return 21; }
-  if(strstr(GSM_string, "+CPIN: NOT INSERTED"))   { return 22; }
+  snprintf(rest, rest_size, "POST /configures"); // len(rest)=17
 
-  if(strstr(GSM_string, "+CREG: 0,1"))            { return 23; }
+put_configure:
+  if (sync_cnt >= 3) return false;
 
-  if(strstr(GSM_string, "ENTEL PCS"))             { return 24; }
-  if(strstr(GSM_string, "CLARO CHILE"))           { return 25; }
-  if(strstr(GSM_string, "COPS: 0,0,\"73002\""))   { return 26; }
-  if(strstr(GSM_string, "MOVISTAR"))              { return 26; }
+  // jsonificando en el buffer
+  m95.cleanStringIO();
+  geocentinela.c.serialize(m95.getStringIO(), m95.getStringIOLength(),
+                           (uint8_t*)adc_ring_buffer, GC_ADC_RING_SIZE_BYTES, to_search);
 
-  if(strstr(GSM_string, "SIM PIN\r\n"))           { return 2; }
-  if(strstr(GSM_string, "READY\r\n"))             { return 3; }
-  if(strstr(GSM_string, "0,1\r\n"))               { return 4; }
-  if(strstr(GSM_string, "0,5\r\n"))               { return 4; }
-  if(strstr(GSM_string, "\n>"))                   { return 5; } // prompt for SMS text
-  if(strstr(GSM_string, "NO CARRIER\r\n"))        { return 6; }
-  if(strstr(GSM_string, "+CGATT: 1\r\n"))         { return 7; }
-  if(strstr(GSM_string, "IP INITIAL\r\n"))        { return 8; }
-  if(strstr(GSM_string, "IP STATUS\r\n"))         { return 8; }
-  if(strstr(GSM_string, "IP CLOSE\r\n"))          { return 8; }
-  if(strstr(GSM_string, "CONNECT OK\r\n"))        { return 9; }
-  if(strstr(GSM_string, "ALREADY CONNECT\r\n"))   { return 9; }
-  if(strstr(GSM_string, "SEND OK\r\n"))           { return 10; }
-  if(strstr(GSM_string, "RING\r\n"))              { return 11; }
-  if(strstr(GSM_string, "+QPING:"))               { return 12; }
-  if(strstr(GSM_string, "+CPMS:"))                { return 13; }
-  if(strstr(GSM_string, "OK\r\n\r\nCONNECT\r\n")) { return 14; }
-  if(strstr(GSM_string, "+QSMTPBODY:"))           { return 15; }
-  if(strstr(GSM_string, "+QSMTPPUT: 0"))          { return 16; }
-  if(strstr(GSM_string, ":0\r\n"))                { return 17; }
-  if(strstr(GSM_string, "+QFTPGET:"))             { return 18; }
+  // enviando...
+  uint16_t stateHTTP = m95.httpJsonREST(geocentinela.getHostName(), rest);
 
-  if(strstr(GSM_string, "\r\nCONNECT\r\n"))       { return 27; }
+  // guardando...
+  if (1 == (stateHTTP & 0x1) and (stateHTTP >> 1) > 0) {
+    rConfigure c;
+    c.set(geocentinela.c);
 
-  if(strstr(GSM_string, "+QNTP: 0"))              { return 100; }
-  if(strstr(GSM_string, "+CCLK:"))                { return 101; }
+    Serial.print("0_locat_c:");Serial.println(geocentinela.c.getUpdatedAt());
+    Serial.print("0_new_c:");Serial.println(c.getUpdatedAt());
 
-  if(strstr(GSM_string, "OK\r\n"))                { return 1; }
+    if (c.deserialize(m95.getStringIO(), (uint8_t*)adc_ring_buffer, GC_ADC_RING_SIZE_BYTES)) {
+      if (0 == geocentinela.c.getId()) geocentinela.c.setId(c.getId());
 
-  return 0;
+    Serial.print("1_locat_c:");Serial.println(geocentinela.c.getUpdatedAt());
+    Serial.print("1_new_c:");Serial.println(c.getUpdatedAt());
+
+      if (!geocentinela.c.updatedAt(c.getUpdatedAt())) {
+          geocentinela.c.set(c);
+          geocentinela.write();
+          updated_cfg = true;
+      } else if (!c.updatedAt(geocentinela.c.getUpdatedAt())) {
+        snprintf(rest, rest_size, "PUT /configures/%lu.json", geocentinela.c.getId()); // len(rest)<=32
+
+        to_search = false;
+
+        // enviando...
+        goto put_configure;
+      }
+    } else {
+      sync_cnt++;
+
+      if (422 == (stateHTTP >> 1)) {
+        to_search = false;
+        goto post_configure;
+      }
+
+      goto try_configure;
+    }
+  } else return false;
+
+  return true;
 }
 //----------------------------------------------------------------------
-boolean ntpSync()
+boolean syncInstrument(boolean & updated_cfg)
 {
+  if (!geocentinela.getGprs()) return false;
+  if (!(powMask & M95_MASK)) return false;
+
+  uint8_t sync_cnt = 0;
+  boolean to_search;
+
+  boolean sync_configure_sensor = false;
+
+  uint8_t rest_size = 33;
+  char rest[rest_size];
+
+try_instrument:
+  to_search = true;
+  if (sync_cnt >= 3) return false;
+
+post_instrument:
+  if (sync_cnt >= 3) return false;
+
+  snprintf(rest, rest_size, "POST /instruments"); // len(rest)=18
+
+put_instrument:
+  if (sync_cnt >= 3) return false;
+
+  // jsonificando en el buffer
+  m95.cleanStringIO();
+  geocentinela.serialize(m95.getStringIO(), m95.getStringIOLength(),
+                         (uint8_t*)adc_ring_buffer, GC_ADC_RING_SIZE_BYTES, to_search);
+
+  // enviando...
+  uint16_t stateHTTP = m95.httpJsonREST(geocentinela.getHostName(), rest);
+
+  // guardando...
+  if (1 == (stateHTTP & 0x1) and (stateHTTP >> 1) > 0) {
+    rInstrument gc;
+    gc.set(geocentinela);
+
+    Serial.print("0_locat_i:");Serial.println(geocentinela.getUpdatedAt());
+    Serial.print("0_locat_c:");Serial.println(geocentinela.c.getUpdatedAt());
+    Serial.print("0_locat_s:");Serial.println(geocentinela.s.getUpdatedAt());
+
+    Serial.print("0_new_i:");Serial.println(gc.getUpdatedAt());
+    Serial.print("0_new_c:");Serial.println(gc.c.getUpdatedAt());
+    Serial.print("0_new_s:");Serial.println(gc.s.getUpdatedAt());
+
+    if (gc.deserialize(m95.getStringIO(), (uint8_t*)adc_ring_buffer, GC_ADC_RING_SIZE_BYTES)) {
+      if (0 == geocentinela.getId()) geocentinela.setId(gc.getId());
+
+    Serial.print("1_locat_i:");Serial.println(geocentinela.getUpdatedAt());
+    Serial.print("1_locat_c:");Serial.println(geocentinela.c.getUpdatedAt());
+    Serial.print("1_locat_s:");Serial.println(geocentinela.s.getUpdatedAt());
+
+    Serial.print("1_new_i:");Serial.println(gc.getUpdatedAt());
+    Serial.print("1_new_c:");Serial.println(gc.c.getUpdatedAt());
+    Serial.print("1_new_s:");Serial.println(gc.s.getUpdatedAt());
+
+      if (!geocentinela.updatedAt(gc.getUpdatedAt())) {
+        geocentinela.set(gc);
+        geocentinela.write();
+        updated_cfg = true;
+      } else if (!gc.updatedAt(geocentinela.getUpdatedAt())) {
+        snprintf(rest, rest_size, "PUT /instruments/%lu.json", geocentinela.getId()); // len(rest)<=33
+
+        to_search = false;
+
+        // enviando...
+        goto put_instrument;
+      }
+    } else {
+      sync_cnt++;
+
+      if (422 == (stateHTTP >> 1)) {
+        if (!sync_configure_sensor) {
+          if (!syncConfigure(updated_cfg)) return false;
+          if (!syncSensor()) return false;
+          sync_configure_sensor = true;
+        }
+
+        to_search = false;
+        goto post_instrument;
+      }
+
+      goto try_instrument;
+    }
+  } else return false;
+
+  if (!sync_configure_sensor) {
+    if (!syncConfigure(updated_cfg)) return false;
+    if (!syncSensor()) return false;
+  }
+  return true;
+}
+//----------------------------------------------------------------------
+boolean syncFatFile(SdFile & file)
+{
+  if (!geocentinela.getGprs()) return false;
+  if (!(powMask & M95_MASK) or !(powMask & SD_MASK)) return false;
+
+  if (0 == geocentinela.getId()) return false;
+
+  uint8_t sync_cnt = 0;
+  boolean to_search;
+
+  uint8_t rest_size = 34;
+  char rest[rest_size];
+
+  rFatFile fatfile;
+  fatfile.setInstrumentId(geocentinela.getId());
+
+try_fat_file:
+  to_search = true;
+  if (sync_cnt >= 3) return false;
+
+  // set:
+  fatfile.setFile(file);
+
+post_fat_file:
+  if (sync_cnt >= 3) return false;
+
+  snprintf(rest, rest_size, "POST /fat_files"); // len(rest)=16
+
+put_fat_file:
+  if (sync_cnt >= 3) return false;
+
+  // jsonificando en el buffer
+  m95.cleanStringIO();
+  fatfile.serialize(m95.getStringIO(), m95.getStringIOLength(), (uint8_t*)adc_ring_buffer, GC_ADC_RING_SIZE_BYTES, to_search);
+  Serial.print("file: ");
+  Serial.println(m95.getStringIO());
+
+  // enviando...
+  uint16_t stateHTTP = m95.httpJsonREST(geocentinela.getHostName(), rest);
+
+  // guardando...
+  if (1 == (stateHTTP & 0x1) and 204 == (stateHTTP >> 1)) return true; // delete! 204 == No Content
+
+  if (1 == (stateHTTP & 0x1) and (stateHTTP >> 1) > 0) {
+    rFatFile faux;
+
+    if (faux.deserialize(m95.getStringIO(), (uint8_t*)adc_ring_buffer, GC_ADC_RING_SIZE_BYTES)) {
+      if (fatfile.getUpdatedAt() < 2*(faux.getUpdatedAt() >> 1)) { // 2 seconds file datetime granularity
+        switch (faux.getAction()) {
+          case 0: { // nada
+            uint32_t lepoch = faux.getUpdatedAt()+geocentinela.getTimeZoneOffset();
+
+            file.timestamp(T_WRITE | T_ACCESS, year(lepoch), month(lepoch), day(lepoch),
+                                               hour(lepoch), minute(lepoch), second(lepoch));
+            fatfile.setFile(file);
+          } break;
+          case 1: { // borrar
+            if (file.isOpen()) file.close();
+
+            fatfile.set(faux);
+            if (sd.remove(fatfile.getName())) { // se debe borrar en el servidor
+              snprintf(rest, rest_size, "DELETE /fat_files/%lu.json", fatfile.getId()); // len(rest)<=34
+
+              to_search = false;
+
+              sync_cnt++;
+              goto put_fat_file;
+            } else {
+              fatfile.setAction(2);
+              snprintf(rest, rest_size, "PUT /fat_files/%lu.json", fatfile.getId()); // len(rest)<=31
+
+              to_search = false;
+
+              sync_cnt++;
+              goto put_fat_file;
+            }
+          } break;
+          case 2: { // reprocesar
+            // no se hace nada por el momento...
+          } break;
+          case 3: { // send
+            // no se hace nada por el momento...
+          } break;
+        }
+      } else if (fatfile.getUpdatedAt() > 2*(faux.getUpdatedAt() >> 1)) { // 2 seconds file datetime granularity
+        snprintf(rest, rest_size, "PUT /fat_files/%lu.json", faux.getId()); // len(rest)<=31
+
+        to_search = false;
+
+        // enviando...
+        sync_cnt++;
+        goto put_fat_file;
+      }
+    } else {
+      sync_cnt++;
+
+      if (422 == (stateHTTP >> 1)) {
+        to_search = false;
+        goto post_fat_file;
+      }
+
+      goto try_fat_file;
+    }
+  } else return false;
+
+  return true;
+}
+//----------------------------------------------------------------------
+uint32_t time2Number(uint32_t secondsTime, uint32_t tickTime)
+{
+  return (secondsTime*1000000)/tickTime;
+}
+//----------------------------------------------------------------------
+#define HEADER_BITS 17
+#define HEADER_VREF 18
+#define HEADER_TZOFFSET 20
+#define HEADER_SENSITIVITY 24
+#define HEADER_GAIN 40
+#define HEADER_TICK_TIME 42
+#define HEADER_TRIGGER_TIME 56
+#define HEADER_RTC 72
+#define HEADER_NCONF 76
+
+#define TAIL_NRCONF 12
+
+boolean gcSaveSyncEvents()
+{
+  if (0 == geocentinela.c.getTriggerLevel() or 0 == geocentinela.c.getTriggerTime()) return false;
+
   const uint32_t pMask = powMask;
-  // power on gsm
-  setPowerUp(GSM_MASK);
+  setPowerUp(SD_MASK);
+  if (!(powMask & SD_MASK)) goto fail;
 
-  if (powMask & GSM_MASK) {
-    char *str_cmd_ntp[3] = {
-      PSTR("AT+QNTP=\"" NTP1 "\",123\r"),
-      PSTR("AT+QNTP=\"" NTP2 "\",123\r"),
-      PSTR("AT+QNTP=\"" NTP3 "\",123\r")
-    };
+  snprintf(&filename[FILENAME_MAX_LENGH-3], 4, PSTR("TRG"));
+  if (!tfile.open(filename, O_READ)) goto fail;
 
-    for (uint8_t i = 0; i < 3; i++) {
-      // clear serial line
-      GSM_IO.flush();
-      while (GSM_IO.available()) GSM_IO.read();
+  snprintf(&filename[FILENAME_MAX_LENGH-3], 4, PSTR("XYZ"));
+  if (!file.open(filename, O_READ)) goto fail;
 
-      GSM_IO.write(str_cmd_ntp[i]);
-      uint16_t resp = WaitOfReaction(300);
-      if (resp != 1) goto fail;
+  if (tfile.fileSize() > 0) {
+    uint8_t header[FILE_HEAD];
+    if (file.read(header, sizeof(header)) != sizeof(header)) goto fail;
 
-      resp = WaitOfReaction(120000);
-      if (resp == 100) {
-        int s = -1, snew = s;
-        uint16_t attempt = 0;
-        while (snew == s && (attempt++) < 20) {
-          // clear serial line
-          GSM_IO.flush();
-          while (GSM_IO.available()) GSM_IO.read();
+    uint8_t tail[FILE_TAIL];
+    if (!file.seekEnd(-FILE_TAIL) or file.read(tail, sizeof(tail)) != sizeof(tail)) goto fail;
 
-          GSM_IO.write(PSTR("AT+CCLK?\r"));
-          resp = WaitOfReaction(300); // 94-95 ms
-          if (resp == 101) {
-            char *pstr = strchr(GSM_string,'\"');
-            int yr = (int)strtol(pstr+1, &pstr, 10);
-            int mnth = (int)strtol(pstr+1, &pstr, 10);
-            int dy = (int)strtol(pstr+1, &pstr, 10);
-            int h = (int)strtol(pstr+1, &pstr, 10);
-            int m = (int)strtol(pstr+1, &pstr, 10);
-            s = (int)strtol(pstr+1, &pstr, 10);
-            int dl = (int)strtol(pstr+1, &pstr, 10);
+    uint8_t fBits = header[HEADER_BITS];// factor
+    uint16_t fVref = *((uint16_t*)&header[HEADER_VREF]);// factor
+    float fSensitivity = *((float*)&header[HEADER_SENSITIVITY]);// factor
+    uint8_t fGain = header[HEADER_GAIN];// factor
 
-            if (snew == -1) {
-              snew = s;
-            }
+    float factor = (1000*fSensitivity)*(pow(2,fBits+fGain)/fVref);
 
-            if (snew != s) {
-              setTime(h, m, s, dy, mnth, yr);
-              adjustTime(((HOUR_OFFSET*SECS_PER_HOUR)+(dl*SECS_PER_HOUR)/4));
-              Teensy3Clock.set(now());
-              setSyncProvider(getTeensy3Time);
-              uint32_t t1 = Teensy3Clock.get();
-              uint32_t t2 = t1;
-              while (t1 == t2) {
-                t2 = Teensy3Clock.get();
-              }
-              Teensy3Clock.set(t1);
-              setSyncProvider(getTeensy3Time);
-              goto sync;
-            }
-          }
+    uint32_t fTickTime = *((uint32_t*)&header[HEADER_TICK_TIME]);// fTriggerTimeNumber
+    uint32_t fTriggerTime = *((uint32_t*)&header[HEADER_TRIGGER_TIME]);// fTriggerTimeNumber
+
+    uint32_t fTriggerTimeNumber = time2Number(fTriggerTime, fTickTime);
+    
+    uint32_t fRTCini = *((uint32_t*)&header[HEADER_RTC]);
+    int32_t fTZOffset = *((int32_t*)&header[HEADER_TZOFFSET]);
+    uint32_t fRTClocal = fRTCini + fTZOffset;
+
+    uint32_t fNConf = *((uint32_t*)&header[HEADER_NCONF]);
+    uint32_t fNRConf = *((uint32_t*)&tail[TAIL_NRCONF]);
+    fNRConf = fNConf - fNRConf;
+
+    // open sync.log file:
+    uint32_t ts_flags = T_WRITE | T_ACCESS;
+    if (!sd.exists(FILENAME_SYNC_LOG)) ts_flags |= T_CREATE;
+
+    if (!synclog.open(FILENAME_SYNC_LOG, O_CREAT | O_APPEND | O_WRITE)) goto fail;
+    synclog.timestamp(ts_flags, year(), month(), day(), hour(), minute(), second());
+
+    uint8_t sync_event[SYNC_EVENT_SIZE];
+    memset(sync_event, 0, SYNC_EVENT_SIZE);
+    memcpy(&sync_event[SYNC_EVENT_FNAME], filename, FILENAME_MAX_LENGH);
+
+    uint32_t trg = 0;
+    uint32_t nsamples = 0;
+    while (tfile.read(&trg, sizeof(uint32_t)) == sizeof(uint32_t)) {
+      trg = fNConf - trg;
+      file.seekSet(FILE_HEAD+3*sizeof(uint16_t)*trg);
+
+      if (trg+fTriggerTimeNumber <= fNRConf) nsamples = fTriggerTimeNumber;
+      else if (trg <= fNRConf) nsamples = fNRConf-trg;
+      else nsamples = 0;
+
+      uint32_t vmax = 0;
+      uint32_t imax = 0;
+      Sample sample;
+      for (uint32_t i = 0; i < nsamples; i++) {
+        if (file.read((uint8_t*)&sample, sizeof(Sample)) != sizeof(Sample)) goto fail;
+
+        uint32_t
+        value  = (uint32_t)(((int32_t)(sample.x-GC_ADC0_AZV))*((int32_t)(sample.x-GC_ADC0_AZV)));
+        value += (uint32_t)(((int32_t)(sample.y-GC_ADC0_AZV))*((int32_t)(sample.y-GC_ADC0_AZV)));
+        value += (uint32_t)(((int32_t)(sample.z-GC_ADC0_AZV))*((int32_t)(sample.z-GC_ADC0_AZV)));
+
+        if (value > vmax) {
+          vmax = value;
+          imax = i;
         }
-        goto fail;
       }
+
+      *((uint32_t*)&sync_event[SYNC_EVENT_RTC]) = fRTClocal+(uint32_t)(((uint64_t)(trg+imax)*fTickTime)/1000000);
+      *((uint32_t*)&sync_event[SYNC_EVENT_MICRO]) = (uint32_t)(((uint64_t)(trg+imax)*fTickTime)%1000000);
+      *((float*)&sync_event[SYNC_EVENT_PPV]) = (float)(sqrt(vmax)/factor);
+      *((uint32_t*)&sync_event[SYNC_EVENT_INDEX]) = trg;
+      *((uint32_t*)&sync_event[SYNC_EVENT_NSAMPLES]) = nsamples;
+
+      synclog.write(sync_event, sizeof(sync_event));
     }
-    goto fail;
+
+    // close sync.log file:
+    synclog.close();
   } else goto fail;
 
-sync:
-  // reset power
+  if (file.isOpen()) file.close();
+  if (tfile.isOpen()) tfile.close();
+  if (synclog.isOpen()) synclog.close();
+
   setPowerDown(~pMask);
   setPowerUp(pMask);
   return true;
 
 fail:
-  // reset power
+  if (file.isOpen()) file.close();
+  if (tfile.isOpen()) tfile.close();
+  if (synclog.isOpen()) synclog.close();
+
   setPowerDown(~pMask);
   setPowerUp(pMask);
   return false;
 }
 //----------------------------------------------------------------------
-void float2s(float f, uint8_t digits, char *s);
-boolean gcSendPPV()
+boolean getFileCacheId(char* const& id, size_t const& id_size)
 {
-  const uint32_t pMask = powMask;
-  setPowerUp(SD_MASK);
+  StaticSharedJsonBuffer jsonBuffer((uint8_t*)adc_ring_buffer, GC_ADC_RING_SIZE_BYTES);
+  JsonObject& object = jsonBuffer.parseObject(m95.getStringIO());
 
-  if (lfile.open(FILENAME_PPV_LOG, O_READ) && lfile.fileSize() > 0) {
-    // power on gsm
-    setPowerUp(GSM_MASK);
+  if (!object.success()) return false;
+  if (!object["id"].success()) return false;
 
-    if (powMask & GSM_MASK) {
-      if (!ntpSync()) goto fail; // net test!
-
-      if (afile.open(FILENAME_PPV_AUX, O_CREAT | O_TRUNC | O_WRITE)) {
-        uint32_t rtc = 0;
-        float ppv = 0;
-
-        char * url = (char*)sd_buffer;
-        uint32_t url_max_size = GC_SD_BUFFER_SIZE_BYTES;
-
-        while (lfile.read(&rtc, sizeof(uint32_t))==sizeof(uint32_t) &&
-               lfile.read(&ppv, sizeof(float))==sizeof(float)) {
-          char ppv_str[16];
-          memset(ppv_str, 0, 10);
-          float2s(ppv, 7, ppv_str);
-
-          memset(url, 0, url_max_size);
-          snprintf(url, url_max_size,
-//            "http://geobot.timining.cl/geobot?HID=%X&MHID=%X&MLID=%X&LID=%X&TS=%X&PPV=%s",
-            "http://geobot.timining.cl/geobottest?HID=%X&MHID=%X&MLID=%X&LID=%X&TS=%X&PPV=%s",
-            SIM_UIDH, SIM_UIDMH, SIM_UIDML, SIM_UIDL,
-            rtc, ppv_str);
-
-          // clear serial line
-          GSM_IO.flush();
-          while (GSM_IO.available()) GSM_IO.read();
-
-          // Set the URL
-          char str_cmd[22];
-          memset(str_cmd, 0, 22);
-          snprintf(str_cmd, 22, "AT+QHTTPURL=%d,30\r", strlen(url));
-          GSM_IO.write(str_cmd);
-          uint16_t resp = WaitOfReaction(30000);
-
-          if (27 != resp) {
-no_send:
-            afile.write((uint8_t*)&rtc, sizeof(uint32_t));
-            afile.write((uint8_t*)&ppv, sizeof(float));
-          } else {
-            GSM_IO.write(url);
-            resp = WaitOfReaction(1000);
-            if (1 != resp) goto no_send;
-
-            // clear serial line
-            GSM_IO.flush();
-            while (GSM_IO.available()) GSM_IO.read();
-
-            // Send HTTP GET request
-            GSM_IO.write("AT+QHTTPGET=60\r");
-            resp = WaitOfReaction(300);
-            if (0 != resp) goto no_send;
-            resp = WaitOfReaction(60000);
-            if (1 != resp) goto no_send;
-
-            // clear serial line
-            GSM_IO.flush();
-            while (GSM_IO.available()) GSM_IO.read();
-
-            // Read the response of HTTP server
-            GSM_IO.write("AT+QHTTPREAD=30\r");
-            resp = WaitOfReaction(300);
-            if (27 != resp) goto no_send;
-            resp = WaitOfReaction(30000);
-            if (1 != resp) goto no_send;
-          }
-        }
-
-        uint32_t afileSize = afile.fileSize();
-
-        lfile.close();
-        afile.close();
-
-        if (sd.exists(FILENAME_PPV_LOG) && sd.remove(FILENAME_PPV_LOG)) {
-          if (afileSize > 0) {
-            sd.rename(FILENAME_PPV_AUX, FILENAME_PPV_LOG);
-            goto fail;
-          }
-          sd.remove(FILENAME_PPV_AUX);
-        } else goto fail;
-      } else goto fail;
-    } else goto fail;
-  }
-
-  if (lfile.isOpen()) lfile.close();
-  if (afile.isOpen()) afile.close();
-
-  setPowerDown(~pMask);
-  setPowerUp(pMask);
+  memset(id, 0, id_size);
+  strncpy(id, object["id"], id_size);
 
   return true;
-
-fail:
-  if (lfile.isOpen()) lfile.close();
-  if (afile.isOpen()) afile.close();
-
-  setPowerDown(~pMask);
-  setPowerUp(pMask);
-
-  return false;  
 }
 //----------------------------------------------------------------------
-boolean gcSavePPV()
+boolean syncEventPpv(uint8_t sync_event[SYNC_EVENT_SIZE])
 {
-  if (0==gc_cfg.ppv_send_time) return false;
+  if (!geocentinela.getGprs()) return false;
+  if (!(powMask & M95_MASK)) return false;
 
-  uint32_t pMask = powMask;
-  setPowerUp(SD_MASK);
+  uint8_t sync_cnt = 0;
+  boolean to_search;
 
-  filename[FILENAME_MAX_LENGH-3] = 'X';
-  filename[FILENAME_MAX_LENGH-2] = 'Y';
-  filename[FILENAME_MAX_LENGH-1] = 'Z';
-  file.open(filename, O_READ);
+  uint8_t rest_size = 28;
+  char rest[rest_size];
 
-  filename[FILENAME_MAX_LENGH-3] = 'T';
-  filename[FILENAME_MAX_LENGH-2] = 'R';
-  filename[FILENAME_MAX_LENGH-1] = 'G';
-  qfile.open(filename, O_READ);
+  rEvent event;
 
-  if (file.isOpen() && qfile.isOpen() && qfile.fileSize() > 0) {
-    uint8_t fBits;
-    uint16_t fVref;
-    if (file.seekSet(17)) {
-      if (file.read(&fVref, sizeof(uint16_t)) != sizeof(uint16_t)) goto fail;
+try_event:
+  to_search = true;
+  if (sync_cnt >= 3) return false;
 
-      fBits = fVref >> 12;
-      if (fBits == 0) fBits = 16;
+  event.read(sync_event, geocentinela);
 
-      fVref &= 0x0FFF;
-    } else goto fail;
+post_event:
+  if (sync_cnt >= 3) return false;
 
-    float fSensitivity;
-    if (file.seekSet(19)) {
-      if (file.read(&fSensitivity, sizeof(float)) != sizeof(float)) goto fail;
-    } else goto fail;
+  snprintf(rest, rest_size, "POST /events"); // len(rest)=13
 
-    uint32_t fTrgTimeNumber;
-    if (file.seekSet(25)) {
-      if (file.read(&fTrgTimeNumber, sizeof(uint32_t)) != sizeof(uint32_t)) goto fail;
-    } else goto fail;
+put_event:
+  if (sync_cnt >= 3) return false;
 
-    uint8_t fGain;
-    if (file.seekSet(29)) {
-      if (file.read(&fGain, sizeof(uint8_t)) != sizeof(uint8_t)) goto fail;
-      fGain = fGain >> 4;
-    } else goto fail;
+  // jsonificando en el buffer
+  m95.cleanStringIO();
+  event.serialize(m95.getStringIO(), m95.getStringIOLength(),
+                  (uint8_t*)adc_ring_buffer, GC_ADC_RING_SIZE_BYTES, to_search);
 
-    float factor = (1000*fSensitivity)*(pow(2,fBits+fGain)/fVref);
+  // enviando...
+  uint16_t stateHTTP = m95.httpJsonREST(geocentinela.getHostName(), rest);
 
-    uint32_t fTickTime;
-    if (file.seekSet(30)) {
-      if (file.read(&fTickTime, sizeof(uint32_t)) != sizeof(uint32_t)) goto fail;
-    } else goto fail;
+  // guardando...
+  if (1 == (stateHTTP & 0x1) and (stateHTTP >> 1) > 0) {
+    rEvent e;
+    if (e.deserialize(m95.getStringIO(), (uint8_t*)adc_ring_buffer, GC_ADC_RING_SIZE_BYTES)) {
+      if (0 == event.getId()) event.setId(e.getId());
 
-    uint32_t fRTCini, fNConf;
-    if (file.seekSet(50)) {
-      if (file.read(&fRTCini, sizeof(uint32_t)) != sizeof(uint32_t)) goto fail;
-      if (file.read(&fNConf, sizeof(uint32_t)) != sizeof(uint32_t)) goto fail;
-    } else goto fail;
+      if (!event.updatedAt(e.getUpdatedAt())) {
+        event.set(e);
+        event.write(sync_event);
+      } else if (!e.updatedAt(event.getUpdatedAt())) {
+        snprintf(rest, rest_size, "PUT /events/%lu.json", event.getId()); // len(rest)<=28
 
-    uint32_t fNRConf;
-    if (file.seekEnd(-12)) {
-      if (file.read(&fNRConf, sizeof(uint32_t)) != sizeof(uint32_t)) goto fail;
-      fNRConf = fNConf - fNRConf;
-    }
+        to_search = false;
 
-    // open ppv.log file:
-    boolean lfileOk = true;
-    if (!sd.exists(FILENAME_PPV_LOG)) {
-      lfileOk = lfile.open(FILENAME_PPV_LOG, O_CREAT | O_EXCL | O_TRUNC | O_WRITE);
+        // enviando...
+        goto put_event;
+      }
     } else {
-      lfileOk = lfile.open(FILENAME_PPV_LOG, O_WRITE | O_APPEND);
-    }
+      sync_cnt++;
 
-    if (!lfileOk || !lfile.isOpen()) {
-      if (lfile.isOpen()) lfile.close();
-      goto fail;
-    }
-
-    uint32_t trg = 0;
-    while (qfile.read(&trg, sizeof(uint32_t)) == sizeof(uint32_t)) {
-      trg = fNConf - trg;
-      file.seekSet(FILE_HEAD+3*sizeof(uint16_t)*trg);
-
-      uint32_t vmax = 0;
-      uint32_t imax = 0;
-      uint16_t values[3] = { 0, 0, 0};
-      for (uint32_t i = 0; i < fTrgTimeNumber && (trg+i) < fNRConf; i++) {
-        if (file.read(values, 3*sizeof(uint16_t)) != 3*sizeof(uint16_t)) {
-          if (lfile.isOpen()) lfile.close();
-          goto fail;
-        } else {
-          uint32_t
-          value  = (values[0]-GC_ADC0_AZV)*(values[0]-GC_ADC0_AZV);
-          value += (values[1]-GC_ADC0_AZV)*(values[1]-GC_ADC0_AZV);
-          value += (values[2]-GC_ADC0_AZV)*(values[2]-GC_ADC0_AZV);
-
-          if (value > vmax) {
-            vmax = value;
-            imax = i;
-          }
-        }
+      if (422 == (stateHTTP >> 1)) {
+        to_search = false;
+        goto post_event;
       }
 
-      uint32_t rtc = fRTCini+(uint32_t)((trg+imax)*(fTickTime/1000000.0));
-      float ppv = sqrt(vmax)/factor;
-
-      lfile.write((uint8_t*)&rtc, sizeof(uint32_t));
-      lfile.write((uint8_t*)&ppv, sizeof(float));
+      goto try_event;
     }
+  } else return false;
 
-    // close ppv.log file:
-    lfile.close();
-  } else goto fail;
+  return true;
+}
+//----------------------------------------------------------------------
+boolean syncEventFileCache(uint8_t sync_event[SYNC_EVENT_SIZE])
+{
+  if (!geocentinela.getGprs()) return false;
+  if (!(powMask & M95_MASK)) return false;
 
+  uint8_t sync_cnt = 0;
+  boolean to_search;
+
+  uint8_t rest_size = 33;
+  char rest[rest_size];
+
+  rEventFile event_file;
+
+try_event_file:
+  to_search = true;
+  if (sync_cnt >= 3) return false;
+
+  event_file.read(sync_event);
+
+post_event_file:
+  if (sync_cnt >= 3) return false;
+
+  snprintf(rest, rest_size, "POST /event_files"); // len(rest)=18
+
+put_event_file:
+  if (sync_cnt >= 3) return false;
+
+  // jsonificando en el buffer
+  m95.cleanStringIO();
+  event_file.serialize(m95.getStringIO(), m95.getStringIOLength(),
+                       (uint8_t*)adc_ring_buffer, GC_ADC_RING_SIZE_BYTES, to_search);
+
+  // enviando...
+  uint16_t stateHTTP = m95.httpJsonREST(geocentinela.getHostName(), rest);
+
+  // guardando...
+  if (1 == (stateHTTP & 0x1) and (stateHTTP >> 1) > 0) {
+    rEventFile ef;
+    if (ef.deserialize(m95.getStringIO(), (uint8_t*)adc_ring_buffer, GC_ADC_RING_SIZE_BYTES)) {
+      if (0 == event_file.getId()) event_file.setId(ef.getId());
+
+      if (!event_file.updatedAt(ef.getUpdatedAt())) {
+        event_file.set(ef);
+        event_file.write(sync_event);
+      } else if (!ef.updatedAt(event_file.getUpdatedAt())) {
+        snprintf(rest, rest_size, "PUT /event_files/%lu.json", event_file.getId()); // len(rest)<=33
+
+        to_search = false;
+
+        // enviando...
+        goto put_event_file;
+      }
+    } else {
+      sync_cnt++;
+
+      if (422 == (stateHTTP >> 1)) {
+        to_search = false;
+        goto post_event_file;
+      }
+
+      goto try_event_file;
+    }
+  } else return false;
+
+  return true;
+}
+//----------------------------------------------------------------------
+// 0b01 -> sync event_ppv
+// 0b10 -> sync event_data
+uint8_t syncEventFile(uint8_t sync_event[SYNC_EVENT_SIZE])
+{
+  if (!geocentinela.getGprs()) return 0b00;
+  if (!(powMask & M95_MASK) or !(powMask & SD_MASK)) return 0b00;
+
+  rEventFile event_file;
+  event_file.read(sync_event);
+
+  uint8_t sync_resp = 0;
+  if (0 == event_file.getEventId()) {
+    if (syncEventPpv(sync_event)) {
+      sync_resp |= 0b01;
+      event_file.read(sync_event); // reload!
+    } else goto return_resp;
+  } else sync_resp |= 0b01;
+
+  if (0 != event_file.getId()) {
+    sync_resp |= 0b10;
+
+    goto return_resp;
+  }
+
+  if (strlen(event_file.getFileCacheId()) == (FILE_ID_SIZE-1)) {
+    if (syncEventFileCache(sync_event)) sync_resp |= 0b10;
+
+    goto return_resp;
+  }
+
+  // Se codifica el archivo del evento
+  char fname[FILENAME_MAX_LENGH+1];
+  memset(fname, 0, FILENAME_MAX_LENGH+1);
+  memcpy(fname, &sync_event[SYNC_EVENT_FNAME], FILENAME_MAX_LENGH);
+
+  if (!file.open(fname, O_READ)) goto return_resp;
+  if (!cfile.open(FILENAME_CACHE_EVF, O_CREAT | O_TRUNC | O_WRITE)) goto return_resp;
+  cfile.timestamp(T_CREATE | T_WRITE | T_ACCESS, year(), month(), day(), hour(), minute(), second());
+
+  uint8_t header[FILE_HEAD];
+  if (file.read(header, sizeof(header)) != sizeof(header)) goto return_resp;
+
+  uint32_t index, rtc, micro, tickTime, nsamples;
+
+  index = *((uint32_t*)&sync_event[SYNC_EVENT_INDEX]);
+  rtc = *((uint32_t*)&header[HEADER_RTC]) +
+          (uint32_t)(((uint64_t)index*tickTime)/1000000);
+  micro = (uint32_t)(((uint64_t)index*tickTime)%1000000);
+  tickTime = *((uint32_t*)&header[HEADER_TICK_TIME]);
+  nsamples = *((uint32_t*)&sync_event[SYNC_EVENT_NSAMPLES]);
+
+  // write header:
+  cfile.write(header[HEADER_BITS]);
+  cfile.write((uint8_t*)&header[HEADER_VREF], sizeof(uint16_t));
+  cfile.write(header[HEADER_GAIN]);
+  cfile.write((uint8_t*)&header[HEADER_SENSITIVITY], sizeof(float));
+  cfile.write((uint8_t*)&header[HEADER_TZOFFSET], sizeof(int32_t));
+  cfile.write((uint8_t*)&rtc, sizeof(uint32_t));
+  cfile.write((uint8_t*)&micro, sizeof(uint32_t));
+  cfile.write((uint8_t*)&tickTime, sizeof(uint32_t));
+  cfile.write((uint8_t*)&nsamples, sizeof(uint32_t));
+
+  // write data:
+  if (index > nsamples/2) index -= nsamples/2;
+  else index = 0;
+
+  if (!file.seekSet(FILE_HEAD+index*sizeof(Sample))) goto return_resp;
+
+  Sample * samples;
+  uint32_t samples_size;
+
+  Delta * deltas;
+  uint32_t deltas_size;
+
+  samples = (Sample *)adc_ring_buffer;
+  samples_size = GC_ADC_RING_SIZE_BYTES/sizeof(Sample);
+
+  deltas = (Delta *)sd_buffer;
+  deltas_size = GC_SD_BUFFER_SIZE_BYTES/sizeof(Delta);
+
+  dCodec * dco;
+  dco = new dCodec(samples, samples_size, deltas, deltas_size);
+  dco->encodeFile(file, cfile, nsamples);
+  delete dco;
+
+  // close files
   if (file.isOpen()) file.close();
-  if (qfile.isOpen()) qfile.close();
+  if (cfile.isOpen()) cfile.close();
+  // archivo del evento codificado!
+
+  // send file:
+  if (!cfile.open(FILENAME_CACHE_EVF, O_READ)) goto return_resp;
+
+  uint32_t stateHTTP;
+  stateHTTP = m95.httpRESTFile(geocentinela.getHostName(), "POST /attachments/cache", cfile);
+
+  if (cfile.isOpen()) cfile.close();
+
+  if (1 != (stateHTTP & 0x1) or 200 != (stateHTTP >> 1)) goto return_resp; // 200 == OK
+
+  if (!getFileCacheId((char*)&sync_event[SYNC_EVENT_FILE_CACHE_ID], FILE_ID_SIZE-1)) goto return_resp;
+
+  if (syncEventFileCache(sync_event)) sync_resp |= 0b10;
+
+return_resp:
+  if (file.isOpen()) file.close();
+  if (cfile.isOpen()) cfile.close();
+
+  return sync_resp;
+}
+//----------------------------------------------------------------------
+boolean syncSysLog();
+boolean gcSyncEvents(boolean & updated_cfg)
+{
+  rMessage mSysLog;
+  mSysLog.setInstrumentId(geocentinela.getId());
+
+  /*
+   * Power On
+   * 
+   */
+  const uint32_t pMask = powMask;
+
+  // power on SD
+  setPowerUp(SD_MASK);
+  if (!(powMask & SD_MASK)) goto fail;
+
+  // power on m95
+  setPowerUp(M95_MASK);
+  if (!(powMask & M95_MASK)) goto fail;
+
+  // open syslog
+  uint32_t ts_flags;
+  ts_flags = T_WRITE | T_ACCESS;
+  if (!sd.exists(FILENAME_SYS_LOG)) ts_flags |= T_CREATE;
+
+  if (!syslog.open(FILENAME_SYS_LOG, O_CREAT | O_APPEND | O_WRITE)) goto fail;
+  syslog.timestamp(ts_flags, year(), month(), day(), hour(), minute(), second());
+
+  /*
+   * sync RTC with NTP
+   * 
+   */
+  int32_t dtSR;
+  int16_t dtPR;
+  double tdelay;
+  if (!m95.ntpSyncUDP(dtSR, dtPR, tdelay)) {
+    switch (m95.call(geocentinela.getPhoneWarning())) {
+      case 1: // NO OK
+      case 4: // NO ANSWER
+      case 5: // NO CARRIER
+      case 6: { // NO DIALTONE
+        delay(10000);
+        m95.call(geocentinela.getPhoneWarning());
+      } break;
+      case 2: // WRONG NUMBER
+      case 3: // BUSY
+      default: { // CALL
+      } break;
+    }
+    goto fail;
+  }
+
+  mSysLog.setDateNow();
+  mSysLog.setFrom("ntpsync");
+
+  char msg[SMS_SIZE];
+  snprintf(msg, SMS_SIZE,
+           "dtSR: %+011ld dtPR: %+06d delay: %+5e offset: %+5e",
+           dtSR, dtPR, tdelay, dtSR + dtPR/32768.0);
+  mSysLog.setSMS(msg);
+
+  // save NTP syslog
+  m95.cleanStringIO();
+  mSysLog.serialize(m95.getStringIO(), m95.getStringIOLength(), (uint8_t*)adc_ring_buffer, GC_ADC_RING_SIZE_BYTES, false);
+  syslog.println(m95.getStringIO());
+
+  /* 
+   *  sync instrument
+   *   
+   */
+  updated_cfg = false;
+  if (!syncInstrument(updated_cfg)) {
+    switch (m95.call(geocentinela.getPhoneWarning())) {
+      case 1: // NO OK
+      case 4: // NO ANSWER
+      case 5: // NO CARRIER
+      case 6: { // NO DIALTONE
+        delay(10000);
+        m95.call(geocentinela.getPhoneWarning());
+      } break;
+      case 2: // WRONG NUMBER
+      case 3: // BUSY
+      default: { // CALL
+      } break;
+    }
+    goto fail;
+  }
+
+  mSysLog.setDateNow();
+  mSysLog.setFrom("instrument");
+
+  if (updated_cfg) {
+    mSysLog.setSMS("sync instrument updated");
+  } else {
+    mSysLog.setSMS("sync instrument no updated");
+  }
+
+  // save sync instrument syslog
+  m95.cleanStringIO();
+  mSysLog.serialize(m95.getStringIO(), m95.getStringIOLength(), (uint8_t*)adc_ring_buffer, GC_ADC_RING_SIZE_BYTES, false);
+  syslog.println(m95.getStringIO());
+
+  /* 
+   *  sync sd fat_files
+   *  
+   */
+  boolean sync_sd_fat_files;
+  sync_sd_fat_files = true;
+
+  uint32_t file_pos;
+  file_pos = 0;
+  while (true) {
+    sd.vwd()->seekSet(file_pos);
+    if (!file.openNext(sd.vwd(), O_WRITE)) break;
+    file_pos = sd.vwd()->curPosition();
+
+    if (!syncFatFile(file)) sync_sd_fat_files = false;
+    if (file.isOpen()) file.close();
+  }
+
+  mSysLog.setDateNow();
+  mSysLog.setFrom("instrument");
+
+  if (sync_sd_fat_files) mSysLog.setSMS("sdsync ok");
+  else mSysLog.setSMS("sdsync fail");
+
+  // save sync sd fat_files
+  m95.cleanStringIO();
+  mSysLog.serialize(m95.getStringIO(), m95.getStringIOLength(), (uint8_t*)adc_ring_buffer, GC_ADC_RING_SIZE_BYTES, false);
+  syslog.println(m95.getStringIO());
+
+  /*
+   * Sync SYS.LOG
+   * 
+   */
+  // close syslog
+  if (!syslog.close()) goto fail;
+
+  // sync syslog
+  syncSysLog();
+
+  /*
+   * sync events and events data
+   * 
+   */
+  boolean sync_event_ok;
+  sync_event_ok = true;
+
+  boolean sync_event_data_ok;
+  sync_event_data_ok = true;
+
+  boolean sync_only_events;
+  sync_only_events = true;
+  
+  // check sync.log file is ok and open it
+synclogOpen:
+  if (!synclog.open(FILENAME_SYNC_LOG, O_READ)) {
+    if (sd.exists(FILENAME_SYNC_LOG)) goto fail;
+
+    if (sync_only_events) {
+      if (!synclog.open(FILENAME_SYNC_LOG, O_CREAT | O_TRUNC | O_WRITE)) goto fail;
+      synclog.timestamp(T_CREATE | T_WRITE | T_ACCESS, year(), month(), day(), hour(), minute(), second());
+      if (!synclog.close()) goto fail;
+    } else goto ok;
+
+    goto synclogOpen;
+  }
+
+  // Si no hay nada que sincronizar
+  if (synclog.fileSize() == 0) goto ok;
+
+  // check sync.aux file is ok and open it
+  if (!syncaux.open(FILENAME_SYNC_AUX, O_CREAT | O_TRUNC | O_WRITE)) goto fail;
+  syncaux.timestamp(T_CREATE | T_WRITE | T_ACCESS, year(), month(), day(), hour(), minute(), second());
+
+  uint8_t sync_event[SYNC_EVENT_SIZE];
+
+  // send PPVs or data!
+  while (synclog.read(sync_event, sizeof(sync_event)) == sizeof(sync_event)) {
+    if (sync_only_events) { // primero se envían sólo los ppv
+      if (!syncEventPpv(sync_event)) {
+        sync_event_ok = false;
+      }
+      syncaux.write(sync_event, sizeof(sync_event));
+    } else { // luego se envia la data
+      if (!(syncEventFile(sync_event) & 0b10)) {
+        sync_event_data_ok = false;
+        syncaux.write(sync_event, sizeof(sync_event));
+      }
+    }
+  }
+
+  if (!synclog.close()) goto fail;
+  if (!syncaux.close()) goto fail;
+
+  if (!sd.remove(FILENAME_SYNC_LOG)) goto fail;
+  if (!sd.rename(FILENAME_SYNC_AUX, FILENAME_SYNC_LOG)) goto fail;
+
+  if (sync_only_events) {
+    sync_only_events = false;
+    goto synclogOpen;
+  }
 
   setPowerDown(~pMask);
   setPowerUp(pMask);
+
+  return sync_event_ok && sync_event_data_ok;
+
+ok:
+  if (synclog.isOpen()) synclog.close();
+  if (syncaux.isOpen()) syncaux.close();
+  if (sd.exists(FILENAME_SYNC_AUX)) sd.remove(FILENAME_SYNC_AUX);
+
+  setPowerDown(~pMask);
+  setPowerUp(pMask);
+
   return true;
 
 fail:
-  if (file.isOpen()) file.close();
-  if (qfile.isOpen()) qfile.close();
+  if (synclog.isOpen()) synclog.close();
+  if (syncaux.isOpen()) syncaux.close();
+  if (sd.exists(FILENAME_SYNC_AUX)) sd.remove(FILENAME_SYNC_AUX);
 
   setPowerDown(~pMask);
   setPowerUp(pMask);
+
+  return false;
+}
+//----------------------------------------------------------------------
+boolean readline(SdFile & file, char * line, uint32_t max_size)
+{
+  for (uint32_t i = 0; i < max_size; i++) {
+    line[i] = file.read();
+    if ('\n' == line[i]) {
+      line[i] = '\0';
+      return true;
+    }
+  }
+  line[max_size-1] = '\0';
+
+  return false;
+}
+//----------------------------------------------------------------------
+boolean syncSysLog()
+{
+  if (!geocentinela.getGprs()) return false;
+  if (!(powMask & M95_MASK) or !(powMask & SD_MASK)) return false;
+
+  /*
+   * load files
+   * 
+   */
+  // sys.log file is ok
+  if (!syslog.open(FILENAME_SYS_LOG, O_READ)) {
+    if (sd.exists(FILENAME_SYS_LOG)) goto fail;
+    else goto ok;
+  }
+
+  // Si no hay nada que sincronizar
+  if (syslog.fileSize() == 0) goto ok;
+
+  // sys.aux file is ok
+  if (!sysaux.open(FILENAME_SYS_AUX, O_CREAT | O_TRUNC | O_WRITE)) goto fail;
+  sysaux.timestamp(T_CREATE | T_WRITE | T_ACCESS, year(), month(), day(), hour(), minute(), second());
+
+  /*
+   * Sync
+   * 
+   */
+  boolean sync_ok;
+  sync_ok = true;
+
+  m95.cleanStringIO();
+  while (readline(syslog, m95.getStringIO(), m95.getStringIOLength())) {
+    uint8_t msg_str_size = strlen(m95.getStringIO());
+
+    char msg_str[msg_str_size];
+    memcpy(msg_str, m95.getStringIO(), msg_str_size);
+
+    uint16_t stateHTTP = m95.httpJsonREST(geocentinela.getHostName(), "POST /messages");
+
+    rMessage msg;
+    if (1 != (stateHTTP & 0x1) or 201 != (stateHTTP >> 1) or // 201 == Created
+        !msg.deserialize(m95.getStringIO(), (uint8_t*)adc_ring_buffer, GC_ADC_RING_SIZE_BYTES)) {
+      sync_ok = false;
+      sysaux.print(msg_str);
+    }
+
+    m95.cleanStringIO();
+  }
+
+  if (!syslog.close()) goto fail;
+  if (!sysaux.close()) goto fail;
+
+  if (!sd.remove(FILENAME_SYS_LOG)) goto fail;
+  if (!sd.rename(FILENAME_SYS_AUX, FILENAME_SYS_LOG)) goto fail;
+
+  return sync_ok;
+
+ok:
+  if (syslog.isOpen()) syslog.close();
+  if (sysaux.isOpen()) sysaux.close();
+  if (sd.exists(FILENAME_SYS_AUX)) sd.remove(FILENAME_SYS_AUX);
+
+  return true;
+
+fail:
+  if (syslog.isOpen()) syslog.close();
+  if (sysaux.isOpen()) sysaux.close();
+  if (sd.exists(FILENAME_SYS_AUX)) sd.remove(FILENAME_SYS_AUX);
+
   return false;
 }
 //----------------------------------------------------------------------
@@ -1779,21 +2246,21 @@ boolean files_close()
   }
 
   boolean close_file = true;
-  boolean close_qfile = true;
+  boolean close_tfile = true;
 
-  if (file.isOpen() && !file.close()) {
-    gc_println(PSTR("error:stop: close file!"));
+  if (file.isOpen() and !file.close()) {
+    geocentinela.println(PSTR("error:stop: close file!"));
     close_file = false;
   }
 
-  if (qfile.isOpen() && !qfile.close()) {
-    gc_println(PSTR("error:stop: close qfile!"));
-    close_qfile = false;
+  if (tfile.isOpen() and !tfile.close()) {
+    geocentinela.println(PSTR("error:stop: close tfile!"));
+    close_tfile = false;
   }
 
   gcPlayStat &= ~GC_ST_FILE_OPEN;
   setPowerDown(PGA_MASK|SD_MASK);
-  return (close_file && close_qfile);
+  return (close_file and close_tfile);
 }
 
 boolean gcStop()
@@ -1808,11 +2275,11 @@ boolean gcStop()
 
   // stop adc_play
   adc_play.end();
-  adc_rtc_stop = Teensy3Clock.get();
+  adc_rtc_stop = RTC_TSR;
 
   int8_t wadc = 3;
-  while (ADC0_SC1A != adc_config[3] && wadc-- > 0) {
-    gc_println(PSTR("warning:gc_stop: waiting for the ADC!"));
+  while (ADC0_SC1A != ADC_SC1_ADCH(0b11111) and wadc-- > 0) {
+    geocentinela.println(PSTR("warning:gc_stop: waiting for the ADC!"));
     delay(LOG_TIMEOUT);
   }
 
@@ -1829,7 +2296,7 @@ boolean gcStop()
     delta--;
   }
   file.write(sd_buffer, sd_head * sizeof(uint16_t));
-  qfile.write(quake_list, quake_head * sizeof(uint32_t));
+  tfile.write(trigger_list, trigger_list_head * sizeof(uint32_t));
 
   // save errors
   file.write((uint8_t*)&buffer_errors, sizeof(uint32_t)); // 4
@@ -1850,92 +2317,76 @@ boolean gcStop()
   file.write((uint8_t*)&temp, sizeof(float)); // +4 = 24
 
   // file timestamp
-  file.timestamp(T_WRITE, year(), month(), day(), hour(), minute(), second());
-  file.timestamp(T_ACCESS, year(), month(), day(), hour(), minute(), second());
-  qfile.timestamp(T_WRITE, year(), month(), day(), hour(), minute(), second());
-  qfile.timestamp(T_ACCESS, year(), month(), day(), hour(), minute(), second());
+  file.timestamp(T_WRITE | T_ACCESS, year(), month(), day(), hour(), minute(), second());
+  tfile.timestamp(T_WRITE | T_ACCESS, year(), month(), day(), hour(), minute(), second());
 
   boolean aux = files_close();
 
-  gcSavePPV();
+  gcSaveSyncEvents();
 
   return aux;
 }
 
 boolean file_cfg()
 {
-  setPowerUp(PGA_MASK|SD_MASK);
-
-  // create a new file
-  filename[FILENAME_MAX_LENGH-3] = 'X';
-  filename[FILENAME_MAX_LENGH-2] = 'Y';
-  filename[FILENAME_MAX_LENGH-1] = 'Z';
-
-  static uint32_t n = 0;
-  for (; n < pow(10, FILENAME_MAX_LENGH-(FILENAME_NO_DIGITS+FILENAME_EXT));) {
-    for (uint8_t i = 0; i < (FILENAME_MAX_LENGH-(FILENAME_NO_DIGITS+FILENAME_EXT)); i++) {
-      uint32_t pw = pow(10, i+1);
-      filename[(FILENAME_MAX_LENGH-FILENAME_EXT)-(i+1)] = '0' + ((n%pw)/(pw/10));
-    }
-
-    if (file.open(filename, O_CREAT | O_EXCL | O_TRUNC | O_WRITE)) {
-      file.timestamp(T_CREATE, year(), month(), day(), hour(), minute(), second());
-      file.timestamp(T_WRITE, year(), month(), day(), hour(), minute(), second());
-      file.timestamp(T_ACCESS, year(), month(), day(), hour(), minute(), second());
-
-      filename[FILENAME_MAX_LENGH-3] = 'T';
-      filename[FILENAME_MAX_LENGH-2] = 'R';
-      filename[FILENAME_MAX_LENGH-1] = 'G';
-
-      if (qfile.open(filename, O_CREAT | O_TRUNC | O_WRITE)) {
-        qfile.timestamp(T_CREATE, year(), month(), day(), hour(), minute(), second());
-        qfile.timestamp(T_WRITE, year(), month(), day(), hour(), minute(), second());
-        qfile.timestamp(T_ACCESS, year(), month(), day(), hour(), minute(), second());
-
-        n++;
-        if (n == pow(10, FILENAME_MAX_LENGH-(FILENAME_NO_DIGITS+FILENAME_EXT))) n = 0;
-
-        break;
-      } else {
-        file.timestamp(T_CREATE, 1990, month(), day(), hour(), minute(), second());
-        file.timestamp(T_WRITE, 1990, month(), day(), hour(), minute(), second());
-        file.timestamp(T_ACCESS, 1990, month(), day(), hour(), minute(), second());
-        file.close();
-
-        filename[FILENAME_MAX_LENGH-3] = 'X';
-        filename[FILENAME_MAX_LENGH-2] = 'Y';
-        filename[FILENAME_MAX_LENGH-1] = 'Z';
-      }
-    }
-
-    n++;
-    if (n == pow(10, FILENAME_MAX_LENGH-(FILENAME_NO_DIGITS+FILENAME_EXT))) n = 0;
+  uint32_t pMask = powMask;
+  setPowerUp(SD_MASK);
+  if (!(powMask & SD_MASK)) {
+    setPowerDown(~pMask);
+    setPowerUp(pMask);
+    return false;
   }
 
-  if (!file.isOpen() || !qfile.isOpen()) {
-    gc_println(PSTR("log:files open failed"));
+  uint8_t n = 0;
+
+  // create a new file
+try_file:
+  if (n++ > 10) goto out_try_file;
+
+  delay(1000);
+
+  snprintf(filename, FILENAME_MAX_LENGH+1, PSTR("%08lX.XYZ"), Teensy3Clock.get());
+  snprintf(&filename[FILENAME_MAX_LENGH-3], 4, PSTR("XYZ"));
+
+  if (file.open(filename, O_CREAT | O_EXCL | O_TRUNC | O_WRITE)) {
+      file.timestamp(T_CREATE | T_WRITE | T_ACCESS, year(), month(), day(), hour(), minute(), second());
+
+      snprintf(&filename[FILENAME_MAX_LENGH-3], 4, PSTR("TRG"));
+
+      if (tfile.open(filename, O_CREAT | O_TRUNC | O_WRITE)) {
+        tfile.timestamp(T_CREATE | T_WRITE | T_ACCESS, year(), month(), day(), hour(), minute(), second());
+      } else {
+        file.timestamp(T_CREATE | T_WRITE | T_ACCESS, 1973, 9, 11, hour(), minute(), second());
+        file.close();
+
+        snprintf(&filename[FILENAME_MAX_LENGH-3], 4, PSTR("XYZ"));
+
+        goto try_file;
+      }
+  } else goto try_file;
+
+out_try_file:
+  if (!file.isOpen() or !tfile.isOpen()) {
+    geocentinela.println(PSTR("file_cfg:open files failed!"));
 
     if (file.isOpen()) {
-      file.timestamp(T_CREATE, 1980, month(), day(), hour(), minute(), second());
-      file.timestamp(T_WRITE, 1980, month(), day(), hour(), minute(), second());
-      file.timestamp(T_ACCESS, 1980, month(), day(), hour(), minute(), second());
+      file.timestamp(T_CREATE | T_WRITE | T_ACCESS, 1980, month(), day(), hour(), minute(), second());
       file.close();
     }
 
-    if (qfile.isOpen()) {
-      qfile.timestamp(T_CREATE, 1980, month(), day(), hour(), minute(), second());
-      qfile.timestamp(T_WRITE, 1980, month(), day(), hour(), minute(), second());
-      qfile.timestamp(T_ACCESS, 1980, month(), day(), hour(), minute(), second());
-      qfile.close();
+    if (tfile.isOpen()) {
+      tfile.timestamp(T_CREATE | T_WRITE | T_ACCESS, 1980, month(), day(), hour(), minute(), second());
+      tfile.close();
     }
 
     gcPlayStat &= ~GC_ST_FILE_OPEN;
-    setPowerDown(PGA_MASK|SD_MASK);
 
+    setPowerDown(~pMask);
+    setPowerUp(pMask);
     return false;
   } else {
     // write uint8_t file format
-    file.write((uint8_t)FILE_FORMAT); // 1
+    file.write((uint8_t)FILE_FORMAT); // +1 = 1
 
     // write uint32_t SIM_UIDH
     file.write((uint8_t*)&SIM_UIDH, sizeof(uint32_t)); // +4 = 5
@@ -1949,102 +2400,149 @@ boolean file_cfg()
     // write uint32_t SIM_UIDL
     file.write((uint8_t*)&SIM_UIDL, sizeof(uint32_t)); // +4 = 17
 
-    // write uint16_t GC_ADC_VREF in mV and bits:
-    uint16_t bitsVref = ((GC_ADC_BITS << 12) & 0xF000) | (GC_ADC_VREF & 0x0FFF);
-    file.write((uint8_t*)&bitsVref, sizeof(uint16_t)); // +2 = 19
+    // write uint8_t GC_ADC_BITS:
+    file.write((uint8_t)GC_ADC_BITS); // +1 = 18
+
+    // write uint16_t GC_ADC_VREF in mV:
+    uint16_t vref_mV = GC_ADC_VREF;
+    file.write((uint8_t*)&vref_mV, sizeof(uint16_t)); // +2 = 20
+
+    // write int32_t 
+    file.write((uint8_t*)&geocentinela.getTimeZoneOffset(), sizeof(int32_t)); // +4 = 24
 
     // write float sensitivity:
-    file.write((uint8_t*)&gc_cfg.sensitivity, sizeof(float)); // +4 = 23
+    file.write((uint8_t*)&geocentinela.s.getSensitivity(), sizeof(float)); // +4 = 28
 
-    // write uint16_t trigger_level:
-    file.write((uint8_t*)&gc_cfg.trigger_level, sizeof(uint16_t)); // +2 = 25
+    float lng, lat, cta;
+    geocentinela.s.getLocation(lng, lat, cta);
 
-    // write uint32_t trigger_time_number:
-    file.write((uint8_t*)&gc_cfg.trigger_time_number, sizeof(uint32_t)); // +4 = 29
+    // write float latitud:
+    file.write((uint8_t*)&lat, sizeof(float)); // +4 = 32
 
-    // write uint8_t ((gain << 4)| average):
-    file.write((uint8_t)((gc_cfg.gain << 4) | gc_cfg.average)); // +1 = 30
+    // write float longitud:
+    file.write((uint8_t*)&lng, sizeof(float)); // +4 = 36
 
-    // write uint32_t tick_time_useg:
-    file.write((uint8_t*)&gc_cfg.tick_time_useg, sizeof(uint32_t)); // +4 = 34
+    // write float cota:
+    file.write((uint8_t*)&cta, sizeof(float)); // +4 = 40
 
-    // write uint32_t time_begin_seg:
-    file.write((uint8_t*)&gc_cfg.time_begin_seg, sizeof(uint32_t)); // +4 = 38
+    // write uint8_t gain
+    file.write((uint8_t)geocentinela.c.getGain()); // +1 = 41
+
+    // write uint8_t hardware_average:
+    file.write((uint8_t)geocentinela.c.getHardwareAverage()); // +1 = 42
+
+    // write uint32_t tick_time:
+    file.write((uint8_t*)&geocentinela.c.getTickTime(), sizeof(uint32_t)); // +4 = 46
+
+    // write uint32_t time_begin:
+    file.write((uint8_t*)&geocentinela.c.getTimeBegin(), sizeof(uint32_t)); // +4 = 50
 
     // write uint32_t time_end_seg:
-    file.write((uint8_t*)&gc_cfg.time_end_seg, sizeof(uint32_t)); // +4 = 42
+    file.write((uint8_t*)&geocentinela.c.getTimeEnd(), sizeof(uint32_t)); // +4 = 54
+
+    // write uint16_t trigger_level:
+    file.write((uint8_t*)&geocentinela.c.getTriggerLevel(), sizeof(uint16_t)); // +2 = 56
+
+    // write uint32_t trigger_time:
+    file.write((uint8_t*)&geocentinela.c.getTriggerTime(), sizeof(uint32_t)); // +4 = 60
+
+    // write uint32_t send_trigger_time:
+    file.write((uint8_t*)&geocentinela.c.getSendTriggerTime(), sizeof(uint32_t)); // +4 = 64
 
     // write float vbat:
     float vbat = getVBat();
-    file.write((uint8_t*)&vbat, sizeof(float)); // +4 = 46
+    file.write((uint8_t*)&vbat, sizeof(float)); // +4 = 68
 
     // write float temp:
     float temp = getTemp();
-    file.write((uint8_t*)&temp, sizeof(float)); // +4 = 50
+    file.write((uint8_t*)&temp, sizeof(float)); // +4 = 72
 
     gcPlayStat |= GC_ST_FILE_OPEN;
+
+    setPowerDown(~pMask);
+    setPowerUp(pMask);
     return true;
   }
 }
 
 void adc_play_callback()
 {
-  if (adc_play_cnt-- == 0) {
-    adc_play_cnt = 0;
-    stop_reading();
-    return;
-  }
+  adc_play_cnt--;
 
-  if (ADC0_SC1A != adc_config[3]) {
-    adc_errors++;
+  if (adc_play_cnt <= adc_play_stop) {
     adc_play_cnt++;
+    stop_reading();
     return;
   }
 
   if (delta+3 >= GC_ADC_RING_SIZE) {
     buffer_errors++;
-    adc_play_cnt++;
+
+    uint16_t *adc_value = (uint16_t*)DMA_TCD1_DADDR;
+    uint16_t* pos = (uint16_t*)(((uint32_t)(adc_value-1) | adc_ring_buffer_mmin) & adc_ring_buffer_mmax);
+    *pos = 0xFFFF;
+
+    return;
+  }
+
+  if (ADC0_SC1A != ADC_SC1_ADCH(0b11111)) {
+    adc_errors++;
+
+    uint16_t *adc_value = (uint16_t*)DMA_TCD1_DADDR;
+    uint16_t* pos = (uint16_t*)(((uint32_t)(adc_value-1) | adc_ring_buffer_mmin) & adc_ring_buffer_mmax);
+    *pos = 0xFFFF;
+
     return;
   }
 
   delta += 3;
 
 #if TRIGGER_BY_SOFTWARE == 0
-#elif TRIGGER_BY_SOFTWARE >= 1
+#elif TRIGGER_BY_SOFTWARE == 1
   uint16_t *adc_value = (uint16_t*)DMA_TCD1_DADDR;
 #endif
 
-  DMA_TCD2_SADDR = &(adc_config[1]);
-  ADC0_SC1A = adc_config[0];
+  DMA_TCD2_SADDR = &(adc_config[1]); // ADC0_ch1
+  ADC0_SC1A = adc_config[0]; // ADC0_ch0
 
-  if (adc_play_cnt_quake > adc_play_cnt) {
+  if (adc_play_cnt_trigger_check > adc_play_cnt) {
 #if TRIGGER_BY_SOFTWARE == 0
-    if (ADC1_SC1A != adc_config[3]) {
-      if (adc_play_cnt > gc_cfg.trigger_time_number)
-        adc_play_cnt_quake = adc_play_cnt - gc_cfg.trigger_time_number;
+    if (ADC1_SC1A != ADC_SC1_ADCH(0b11111)) {
+      if (adc_play_cnt > trigger_time_cnt)
+        adc_play_cnt_trigger_check = adc_play_cnt - trigger_time_cnt;
       else
-        adc_play_cnt_quake = 0;
+        adc_play_cnt_trigger_check = 0;
 
-      quake_list[quake_head++] = adc_play_cnt+2;
-      quake_head &= (QUAKE_LIST_LENGTH-1);
+      if (adc_play_cnt_trigger_check > send_trigger_time_cnt)
+        adc_play_stop = adc_play_cnt_trigger_check - send_trigger_time_cnt;
+      else
+        adc_play_stop = 0;
+
+      trigger_list[trigger_list_head++] = adc_play_cnt+2;
+      trigger_list_head &= (TRIGGER_LIST_LENGTH-1);
     }
 
-    DMA_TCD3_SADDR = &(adc_config[11]);
-    ADC1_SC1A = adc_config[10];
+    DMA_TCD3_SADDR = &(adc_config[9]); // ADC1_ch1
+    ADC1_SC1A = adc_config[8]; // ADC1_ch0
 #elif TRIGGER_BY_SOFTWARE == 1
     uint16_t* x = (uint16_t*)(((uint32_t)(adc_value-3) | adc_ring_buffer_mmin) & adc_ring_buffer_mmax);
     uint16_t* y = (uint16_t*)(((uint32_t)(adc_value-2) | adc_ring_buffer_mmin) & adc_ring_buffer_mmax);
     uint16_t* z = (uint16_t*)(((uint32_t)(adc_value-1) | adc_ring_buffer_mmin) & adc_ring_buffer_mmax);
-    if (quake_min > *x || *x > quake_max ||
-        quake_min > *y || *y > quake_max ||
-        quake_min > *z || *z > quake_max) {
-      if (adc_play_cnt > gc_cfg.trigger_time_number)
-        adc_play_cnt_quake = adc_play_cnt - gc_cfg.trigger_time_number;
+    if (trigger_min > *x or *x > trigger_max or
+        trigger_min > *y or *y > trigger_max or
+        trigger_min > *z or *z > trigger_max) {
+      if (adc_play_cnt > trigger_time_cnt)
+        adc_play_cnt_trigger_check = adc_play_cnt - trigger_time_cnt;
       else
-        adc_play_cnt_quake = 0;
+        adc_play_cnt_trigger_check = 0;
 
-      quake_list[quake_head++] = adc_play_cnt+2;
-      quake_head &= (QUAKE_LIST_LENGTH-1);
+      if (adc_play_cnt_trigger_check > send_trigger_time_cnt)
+        adc_play_stop = adc_play_cnt_trigger_check - send_trigger_time_cnt;
+      else
+        adc_play_stop = 0;
+
+      trigger_list[trigger_list_head++] = adc_play_cnt+2;
+      trigger_list_head &= (TRIGGER_LIST_LENGTH-1);
     }
 #endif
   }
@@ -2053,93 +2551,73 @@ void adc_play_callback()
 boolean gcStart()
 {
   uint32_t cfg_all = GC_CFG_READ|GC_CFG_ADC|GC_CFG_DMA;
-  if ((gcCfgStat & cfg_all)!=cfg_all || (gcPlayStat & GC_ST_READING)) return false;
+  if ((gcCfgStat & cfg_all)!=cfg_all or (gcPlayStat & GC_ST_READING)) return false;
 
-  // restart
+  uint32_t pMask = powMask;
+  setPowerUp(PGA_MASK|SD_MASK);
+  if (!(powMask & PGA_MASK) or !(powMask & SD_MASK)) goto fail;
+
+  // reset
   delta = 0; tail = 0; sd_head = 0;
   adc_errors = 0; buffer_errors = 0;
   adc_rtc_stop = 0;
+  adc_play_stop = 0;
+  adc_play_cnt_trigger_check = adc_play_cnt-1;
 
   // trigger
 #if TRIGGER_BY_SOFTWARE == 0
 #elif TRIGGER_BY_SOFTWARE == 1
-  quake_min = 0x0000 + (gc_cfg.trigger_level+1);
-  quake_max = 0xFFFF - gc_cfg.trigger_level;
+  trigger_min = 0x0000 + (geocentinela.c.getTriggerLevel()+1);
+  trigger_max = 0xFFFF - geocentinela.c.getTriggerLevel();
 #endif
-  quake_head = 0;
-  if (gc_cfg.trigger_level > 0 && gc_cfg.trigger_time_number > 0) adc_play_cnt_quake = adc_play_cnt-1;
-  else adc_play_cnt_quake = 0;
+  trigger_list_head = 0;
+  trigger_time_cnt = time2Number(geocentinela.c.getTriggerTime(), geocentinela.c.getTickTime());
+  send_trigger_time_cnt = time2Number(geocentinela.c.getSendTriggerTime(), geocentinela.c.getTickTime());
+
+  // default configures:
+  if (2 != geocentinela.c.getTimeType()) send_trigger_time_cnt = adc_play_cnt;
+  if (0 == geocentinela.c.getTriggerLevel() or 0 == geocentinela.c.getTriggerTime()) adc_play_cnt_trigger_check = 0;
 
   // configure file
   if (file_cfg()) { // => gcPlayStat += GC_ST_FILE_OPEN
     // read rtc time
-    uint32_t rtc_time = Teensy3Clock.get();
+    uint32_t rtc_time = RTC_TSR+2;
 
     // write uint32_t rtc_time_sec:
     sd_buffer[sd_head++] = ((uint16_t*)&rtc_time)[0];
-    sd_buffer[sd_head++] = ((uint16_t*)&rtc_time)[1]; // +4 = 54
+    sd_buffer[sd_head++] = ((uint16_t*)&rtc_time)[1]; // +4 = 76
 
     // write uint32_t adc_play_cnt:
     sd_buffer[sd_head++] = ((uint16_t*)&adc_play_cnt)[0];
-    sd_buffer[sd_head++] = ((uint16_t*)&adc_play_cnt)[1]; // +4 = 58
+    sd_buffer[sd_head++] = ((uint16_t*)&adc_play_cnt)[1]; // +4 = 80
 
-    // configure adc_play
+    // write uint32_t adc_play error
     sd_buffer[sd_head++] = 0;
-    sd_buffer[sd_head++] = 0; // +4 = 62
+    sd_buffer[sd_head++] = 0; // +4 = 84
 
-    if (!adc_play.begin(adc_play_callback, gc_cfg.tick_time_useg)) {
+    while (RTC_TSR < rtc_time);
+    if (!adc_play.begin(adc_play_callback, geocentinela.c.getTickTime())) {
       adc_play.end();
 
-      sd_buffer[sd_head-1] = 61153;
+      sd_buffer[sd_head-1] = 0xEEE1;
 
       files_close();
-      return false;
+      goto fail;
     }
 
     gcPlayStat |= GC_ST_READING;
     return true;
   }
 
+fail:
+  setPowerDown(~pMask);
+  setPowerUp(pMask);
   return false;
 }
 //-----------------------------------------------------------------------
-void gc_cmd(uint8_t* cmd, uint8_t n)
+void printDigits(int digits)
 {
-  uint8_t head[9] = { '\xaa', '\xaa', '\xaa',
-                      '\xff', '\xff', '\xff',
-                      '\x00', '\x00', '\x00'};
-  Serial.write(head, 9);
-  Serial.write(cmd, n);
-}
-
-void gc_cmd(uint8_t cmd)
-{
-  uint8_t head[10] = { '\xaa', '\xaa', '\xaa',
-                      '\xff', '\xff', '\xff',
-                      '\x00', '\x00', '\x00', cmd};
-  Serial.write(head, 10);
-}
-
-void gc_print(const char *log_string)
-{
-  uint8_t cmd[1] = { 't' };
-  gc_cmd(cmd, 1);
-
-  Serial.print(log_string);
-}
-
-void gc_println(const char *log_string)
-{
-  uint8_t cmd[1] = { 't' };
-  gc_cmd(cmd, 1);
-
-  Serial.println(log_string);
-}
-
-void printDigits(int digits, boolean first)
-{
-  // utility function for digital clock display: prints preceding colon and leading 0
-  if (!first) Serial.print(F(":"));
+  // utility function for digital clock display: prints preceding leading 0
   if(digits < 10)
     Serial.print(F("0"));
   Serial.print(digits);
@@ -2150,69 +2628,23 @@ void digitalClockDisplay()
   // digital clock display of the time:
   Serial.print(year());
   Serial.print(F("-"));
-  Serial.print(month());
+  printDigits(month());
   Serial.print(F("-"));
-  Serial.print(day());
+  printDigits(day());
   Serial.print(F(" "));
-  printDigits(hour(), true);
-  printDigits(minute(), false);
-  printDigits(second(), false);
-  Serial.println();
+  printDigits(hour());
+  Serial.print(F(":"));
+  printDigits(minute());
+  Serial.print(F(":"));
+  printDigits(second());
+  Serial.print(F(" "));
+  //Serial.println();
   //Serial.print(F(" "));
   //Serial.print(now() % SEG_A_DAY);
   //Serial.print(F(":"));
-  //Serial.println(Teensy3Clock.get() % SEG_A_DAY);
+  Serial.print(RTC_TSR % SEG_A_DAY);
+  Serial.print(F(" "));
+  Serial.println(((int32_t)now()-(int32_t)Teensy3Clock.get())/3600.0);
 }
 
-void float2s(float f, uint8_t digits, char *s)
-{
-  uint8_t index=0;
-
-  // handle sign
-  if (f < 0.0)
-  {
-    s[index++] = '-';
-    f = -f;
-  }
-
-  // handle infinite values
-  if (isinf(f))
-  {
-    strcpy(&s[index], "inf");
-    return;
-  }
-
-  // handle Not a Number
-  if (isnan(f))
-  {
-    strcpy(&s[index], "nan");
-    return;
-  }
-
-  // max digits
-  if (digits > 7) digits = 7;
-  int exponent = int(log10(f));
-  double g = f / pow(10, exponent);
-  if ((g < 1.0) && (g != 0.0))
-  {
-    g *= 10;
-    exponent--;
-  }
-  if (exponent < -127) {  // lower limit of single-precision
-    g = 0;
-    exponent = 0;
-  }
-  if (digits < 7) {  // display number rounded at last digit
-    g += 0.5 / pow(10,digits);
-  }
-
-  uint8_t d = g;
-  sprintf(&s[index++], "%d", d);
-  sprintf(&s[index++], ".");
-  for (uint8_t i = 0; i < digits; i++) {
-      g = (g - d) * 10.0;  // shift one decimal place to the left
-      d = int(g);
-      sprintf(&s[index++],"%d",d);
-  }
-  sprintf(&s[index], "e%+d", exponent);
-}
+#define EPOCH_1980_UTC 315532800

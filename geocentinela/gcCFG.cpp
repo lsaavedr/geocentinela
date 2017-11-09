@@ -1,358 +1,447 @@
-#include <stdio.h>
-#include <EEPROM.h>
-
 #include "gcCFG.h"
 
-boolean gcCFG::writeEEPROM()
+void rObject::serialize(char* const& json, size_t const& maxSize, uint8_t* const& buffer, size_t const& buffer_size, boolean const& to_search)
 {
-  uint32_t address = 0;
-  EEPROM.write(address++, CFG_VERSION);
+  StaticSharedJsonBuffer jsonBuffer(buffer, buffer_size);
+  JsonObject& root = jsonBuffer.createObject();
 
-  // write float sensitivity:
-  EEPROM.put(address, sensitivity);
-  address += sizeof(float);
+  builtJson(root, to_search);
 
-  // write uint8_t gain:
-  EEPROM.put(address, gain);
-  address += sizeof(uint8_t);
+  root.printTo(json, maxSize);
+}
 
-  // write uint8_t average:
-  EEPROM.put(address, average);
-  address += sizeof(uint8_t);
+boolean rObject::deserialize(char const* const& json, uint8_t* const& buffer, size_t const& buffer_size, boolean checkValues)
+{
+  StaticSharedJsonBuffer jsonBuffer(buffer, buffer_size);
+  JsonObject& object = jsonBuffer.parseObject(json);
 
-  // write uint32_t tick_time_useg:
-  EEPROM.put(address, tick_time_useg);
-  address += sizeof(uint32_t);
+  if (!object.success()) return false;
+  if (checkValues) {
+    if (!object["id"].success()) return false;
+    if (!object["updated_at"].success()) return false;
 
-  // write uint8_t time_type:
-  EEPROM.put(address, time_type);
-  address += sizeof(uint8_t);
+    if (!checkJsonValues(object)) return false;
+  }
 
-  // write uint32_t time_begin_seg:
-  EEPROM.put(address, time_begin_seg);
-  address += sizeof(uint32_t);
+  if (object["id"].success()) this->id = object["id"];
+  if (object["updated_at"].success()) this->updated_at = object["updated_at"];
+  setJsonValues(object);
 
-  // write uint32_t time_end_seg:
-  EEPROM.put(address, time_end_seg);
-  address += sizeof(uint32_t);
+  fixValues();
+  return true;
+}
 
-  // write gps:
-  EEPROM.put(address, gps);
-  address += sizeof(uint8_t);
+void rObject::show(uint8_t* const& buffer, size_t const& buffer_size)
+{
+  StaticSharedJsonBuffer jsonBuffer(buffer, buffer_size);
+  JsonObject& root = jsonBuffer.createObject();
 
-  // write uint16_t trigger_level:
-  EEPROM.put(address, trigger_level);
-  address += sizeof(uint16_t);
+  builtJson(root, false);
 
-  // write uint32_t trigger_time_number:
-  EEPROM.put(address, trigger_time_number);
-  address += sizeof(uint32_t);
+  root.prettyPrintTo(Serial);
+}
+//------------------------------------------------------------------------------------------------
+void rSensor::fixValues()
+{
+  name[NAME_SIZE-1] = '\0';
 
-  // write uint32_t ppv_send_time:
-  EEPROM.put(address, ppv_send_time);
-  address += sizeof(uint32_t);
+  if (0.0 >= sensitivity) this->sensitivity = 1.0;
+}
+
+void rConfigure::fixValues()
+{
+  name[NAME_SIZE-1] = '\0';
+
+  if (MAX_GAIN < this->gain) this->gain %= MAX_GAIN;
+  if (MAX_HARDWARE_AVERAGE < this->hardware_average) this->hardware_average %= (MAX_HARDWARE_AVERAGE+1);
+  if (MIN_TICK_TIME > this->tick_time) this->tick_time = MIN_TICK_TIME;
+  if (MAX_TIME_TYPE < this->time_type) this->time_type %= (MAX_TIME_TYPE+1);
+  if (SEG_A_DAY < this->time_begin) this->time_begin %= SEG_A_DAY;
+  if (SEG_A_DAY < this->time_end) this->time_end %= SEG_A_DAY;
+  if (MAX_TRIGGER_LEVEL < this->trigger_level) this->trigger_level = MAX_TRIGGER_LEVEL;
+  if (MAX_TRIGGER_TIME < this->trigger_time) this->trigger_time %= MAX_TRIGGER_TIME;
+  if (SEG_A_DAY < this->send_trigger_time) this->send_trigger_time %= SEG_A_DAY;
+}
+
+void rInstrument::fixValues()
+{
+  s.fixValues();
+  c.fixValues();
+
+  host_name[HOST_SIZE-1] = '\0';
+  phone_warning[PHONE_SIZE-1] = '\0';
+  time_zone[NAME_SIZE-1] = '\0';
+
+  if (MAX_TIME_ZONE_OFFSET < this->time_zone_offset) this->time_zone_offset = MAX_TIME_ZONE_OFFSET;
+  if (MIN_TIME_ZONE_OFFSET > this->time_zone_offset) this->time_zone_offset = MIN_TIME_ZONE_OFFSET;
+}
+
+void rFatFile::fixValues()
+{
+  name[NAME_SIZE-1] = '\0';
+
+  if (MAX_FAT_FILE_ACTION < this->action) this->action %= (MAX_FAT_FILE_ACTION+1);
+}
+
+void rEvent::fixValues()
+{
+  if (0.0 > ppv) this->ppv = 0;
+}
+
+void rEventFile::fixValues()
+{
+  this->file_cache_id[FILE_ID_SIZE-1] = '\0';
+}
+
+void rMessage::fixValues()
+{
+  from[PHONE_SIZE-1] = '\0';
+  date[DATE_SIZE-1] = '\0';
+  sms[SMS_SIZE-1] = '\0';
+}
+
+void rSensor::builtJson(JsonObject& root, boolean const& to_search)
+{
+  JsonObject& sensor = root.createNestedObject("sensor");
+
+  if (0 != this->id) sensor["id"] = this->id;
+  else sensor["name"] = this->name;
+
+  if (!to_search) {
+    if (0 != this->id) sensor["name"] = this->name;
+
+    sensor["sensitivity"] = double_with_n_digits(this->sensitivity, DIGIT_SIZE);
+    sensor["lng"] = double_with_n_digits(this->lng, DIGIT_SIZE);
+    sensor["lat"] = double_with_n_digits(this->lat, DIGIT_SIZE);
+    sensor["cta"] = double_with_n_digits(this->cta, DIGIT_SIZE);
+  }
+}
+
+void rConfigure::builtJson(JsonObject& root, boolean const& to_search)
+{
+  JsonObject& configure = root.createNestedObject("configure");
+
+  if (0 != this->id) configure["id"] = this->id;
+  else configure["name"] = this->name;
+
+  if (!to_search) {
+    if (0 != this->id) configure["name"] = this->name;
+
+    configure["gain"] = this->gain;
+    configure["hardware_average"] = this->hardware_average;
+    configure["tick_time"] = this->tick_time;
+    configure["time_type"] = this->time_type;
+    configure["time_begin"] = this->time_begin;
+    configure["time_end"] = this->time_end;
+    configure["trigger_level"] = this->trigger_level;
+    configure["trigger_time"] = this->trigger_time;
+    configure["send_trigger_time"] = this->send_trigger_time;
+  }
+}
+
+void rInstrument::builtJson(JsonObject& root, boolean const& to_search)
+{
+  JsonObject& instrument = root.createNestedObject("instrument");
+
+  instrument["hid"] = SIM_UIDH;
+  instrument["hmid"] = SIM_UIDMH;
+  instrument["lmid"] = SIM_UIDML;
+  instrument["lid"] = SIM_UIDL;
+
+  if (!to_search) {
+    if (0 != this->id) instrument["id"] = this->id;
+
+    instrument["host_name"] = this->host_name;
+    instrument["phone_warning"] = this->phone_warning;
+
+    instrument["time_zone"] = this->time_zone;
+    instrument["time_zone_offset"] = this->time_zone_offset;
+
+    instrument["gprs"] = this->gprs;
+    instrument["gps"] = this->gps;
+
+    uint32_t sid = s.getId();
+    if (sid != 0) instrument["sensor_id"] = sid;
+
+    uint32_t cid = c.getId();
+    if (cid != 0) instrument["configure_id"] = cid;
+  }
+}
+
+void rFatFile::builtJson(JsonObject& root, boolean const& to_search)
+{
+  JsonObject& fat_file = root.createNestedObject("fat_file");
+
+  if (0 != this->instrument_id) fat_file["instrument_id"] = this->instrument_id;
+  fat_file["name"] = this->name;
+
+  if (!to_search) {
+    fat_file["ts"] = this->ts;
+    fat_file["action"] = this->action;
+    fat_file["size"] = this->size;
+  }
+}
+
+void rEvent::builtJson(JsonObject& root, boolean const& to_search)
+{
+  JsonObject& event = root.createNestedObject("event");
+
+  if (0 != this->id) event["id"] = this->id;
+
+  event["ppv"] = this->ppv;
+  event["rtc"] = this->rtc;
+  if (0 != this->sensor_id) event["sensor_id"] = this->sensor_id;
+}
+void rEventFile::builtJson(JsonObject& root, boolean const& to_search)
+{
+  JsonObject& event_file = root.createNestedObject("event_file");
+
+  if (0 != this->id) event_file["id"] = this->id;
+  if (0 != this->event_id) event_file["event_id"] = this->event_id;
+  if (strlen(this->file_cache_id) > 0) event_file["file_cache_id"] = this->file_cache_id;
+}
+
+void rMessage::builtJson(JsonObject& root, boolean const& to_search)
+{
+  JsonObject& message = root.createNestedObject("message");
+
+  if (0 != this->id) message["id"] = this->id;
+
+  if (0 != this->instrument_id) message["instrument_id"] = this->instrument_id;
+  message["from"] = this->from;
+  message["date"] = this->date;
+  message["sms"] = this->sms;
+}
+
+boolean rSensor::checkJsonValues(JsonObject& sensor)
+{
+  if (!sensor["name"].success()) return false;
+  if (!sensor["sensitivity"].success()) return false;
+  if (!sensor["lng"].success()) return false;
+  if (!sensor["lat"].success()) return false;
+  if (!sensor["cta"].success()) return false;
 
   return true;
 }
 
-boolean gcCFG::write()
+boolean rConfigure::checkJsonValues(JsonObject& configure)
 {
-  if (file_cfg.open(file_name, O_CREAT | O_TRUNC | O_WRITE)) {
-    file_cfg.timestamp(T_CREATE, year(), month(), day(), hour(), minute(), second());
-    file_cfg.timestamp(T_WRITE, year(), month(), day(), hour(), minute(), second());
-    file_cfg.timestamp(T_ACCESS, year(), month(), day(), hour(), minute(), second());
+  if (!configure["name"].success()) return false;
+  if (!configure["gain"].success()) return false;
+  if (!configure["hardware_average"].success()) return false;
+  if (!configure["tick_time"].success()) return false;
+  if (!configure["time_type"].success()) return false;
+  if (!configure["time_begin"].success()) return false;
+  if (!configure["time_end"].success()) return false;
+  if (!configure["trigger_level"].success()) return false;
+  if (!configure["trigger_time"].success()) return false;
+  if (!configure["send_trigger_time"].success()) return false;
 
-    // write float sensitivity:
-    file_cfg.write((uint8_t*)&sensitivity, sizeof(float));
-
-    // write uint8_t (gain << 4) | average:
-    file_cfg.write((gain << 4) | average);
-
-    // write uint32_t tick_time_useg:
-    file_cfg.write((uint8_t*)&tick_time_useg, sizeof(uint32_t));
-
-    // write uint8_t time_type:
-    file_cfg.write((uint8_t*)&time_type, sizeof(uint8_t));
-
-    // write uint32_t time_begin_seg:
-    file_cfg.write((uint8_t*)&time_begin_seg, sizeof(uint32_t));
-
-    // write uint32_t time_end_seg:
-    file_cfg.write((uint8_t*)&time_end_seg, sizeof(uint32_t));
-
-    // write gps:
-    file_cfg.write((uint8_t*)&gps, sizeof(uint8_t));
-
-    // write uint16_t trigger_level:
-    file_cfg.write((uint8_t*)&trigger_level, sizeof(uint16_t));
-
-    // write uint32_t trigger_time_number:
-    file_cfg.write((uint8_t*)&trigger_time_number, sizeof(uint32_t));
-
-    // write uint32_t ppv_send_time:
-    file_cfg.write((uint8_t*)&ppv_send_time, sizeof(uint32_t));
-
-    if (!file_cfg.close()) {
-      log(PSTR("gcCFG:write: file close error"));
-      log(file_name);
-
-      writeEEPROM();
-      return false;
-    }
-  } else {
-    log(PSTR("gcCFG:write: file open error"));
-    log(file_name);
-
-    writeEEPROM();
-    return false;
-  }
-
-  return writeEEPROM();
+  return true;
 }
 
-boolean gcCFG::readEEPROM()
+boolean rInstrument::checkJsonValues(JsonObject& instrument)
+{
+  if (!instrument["host_name"].success()) return false;
+  if (!instrument["phone_warning"].success()) return false;
+  if (!instrument["time_zone"].success()) return false;
+  if (!instrument["time_zone_offset"].success()) return false;
+  if (!instrument["sensor_id"].success()) return false;
+  if (!instrument["configure_id"].success()) return false;
+  if (!instrument["gprs"].success()) return false;
+  if (!instrument["gps"].success()) return false;
+
+  return true;
+}
+
+boolean rFatFile::checkJsonValues(JsonObject& fat_file)
+{
+  if (!fat_file["instrument_id"].success()) return false;
+
+  if (!fat_file["action"].success()) return false;
+
+  if (!fat_file["name"].success()) return false;
+  if (!fat_file["size"].success()) return false;
+  if (!fat_file["ts"].success()) return false;
+
+  return true;
+}
+
+boolean rEvent::checkJsonValues(JsonObject& event)
+{
+  if (!event["ppv"].success()) return false;
+  if (!event["rtc"].success()) return false;
+  if (!event["sensor_id"].success()) return false;
+
+  return true;
+}
+
+boolean rEventFile::checkJsonValues(JsonObject& event_file)
+{
+  if (!event_file["event_id"].success()) return false;
+
+  return true;
+}
+
+boolean rMessage::checkJsonValues(JsonObject& message)
+{
+  if (!message["instrument_id"].success()) return false;
+  if (!message["from"].success()) return false;
+  if (!message["date"].success()) return false;
+  if (!message["sms"].success()) return false;
+
+  return true;
+}
+
+void rSensor::setJsonValues(JsonObject& sensor)
+{
+  if (sensor["name"].success()) strncpy(this->name, sensor["name"], NAME_SIZE);
+  if (sensor["sensitivity"].success()) this->sensitivity = sensor["sensitivity"];
+  if (sensor["lng"].success()) this->lng = sensor["lng"];
+  if (sensor["lat"].success()) this->lat = sensor["lat"];
+  if (sensor["cta"].success()) this->cta = sensor["cta"];
+}
+
+void rConfigure::setJsonValues(JsonObject& configure)
+{
+  if (configure["name"].success()) strncpy(this->name, configure["name"], NAME_SIZE);
+  if (configure["gain"].success()) this->gain = configure["gain"];
+  if (configure["hardware_average"].success()) this->hardware_average = configure["hardware_average"];
+  if (configure["tick_time"].success()) this->tick_time = configure["tick_time"];
+  if (configure["time_type"].success()) this->time_type = configure["time_type"];
+  if (configure["time_begin"].success()) this->time_begin = configure["time_begin"];
+  if (configure["time_end"].success()) this->time_end = configure["time_end"];
+  if (configure["trigger_level"].success()) this->trigger_level = configure["trigger_level"];
+  if (configure["trigger_time"].success()) this->trigger_time = configure["trigger_time"];
+  if (configure["send_trigger_time"].success()) this->send_trigger_time = configure["send_trigger_time"];
+}
+
+void rInstrument::setJsonValues(JsonObject& instrument)
+{
+  if (instrument["host_name"].success()) strncpy(this->host_name, instrument["host_name"], HOST_SIZE);
+  if (instrument["phone_warning"].success()) strncpy(this->phone_warning, instrument["phone_warning"], PHONE_SIZE);
+
+  if (instrument["time_zone"].success()) strncpy(this->time_zone, instrument["time_zone"], NAME_SIZE);
+  if (instrument["time_zone_offset"].success()) this->time_zone_offset = instrument["time_zone_offset"];
+
+  if (instrument["gprs"].success()) this->gprs = instrument["gprs"];
+  if (instrument["gps"].success()) this->gps = instrument["gps"];
+
+  if (instrument["sensor_id"].success()) s.setId(instrument["sensor_id"]);
+  if (instrument["configure_id"].success()) c.setId(instrument["configure_id"]);
+}
+
+void rFatFile::setJsonValues(JsonObject& fat_file)
+{
+  if (fat_file["instrument_id"].success()) this->instrument_id = fat_file["instrument_id"];
+
+  if (fat_file["action"].success()) this->action = fat_file["action"];
+
+  if (fat_file["name"].success()) strncpy(this->name, fat_file["name"], NAME_SIZE);
+  if (fat_file["size"].success()) this->size = fat_file["size"];
+  if (fat_file["ts"].success()) this->ts = fat_file["ts"];
+}
+
+void rEvent::setJsonValues(JsonObject& event)
+{
+  if (event["ppv"].success()) this->ppv = event["ppv"];
+  if (event["rtc"].success()) this->rtc = event["rtc"];
+
+  if (event["event_file_id"].success()) this->event_file_id = event["event_file_id"];
+
+  if (event["sensor_id"].success()) this->sensor_id = event["sensor_id"];
+}
+
+void rEventFile::setJsonValues(JsonObject& event_file)
+{
+  if (event_file["event_id"].success()) this->event_id = event_file["event_id"];
+}
+
+void rMessage::setJsonValues(JsonObject& message)
+{
+  if (message["instrument_id"].success()) this->instrument_id = message["instrument_id"];
+  if (message["from"].success()) strncpy(this->from, message["from"], PHONE_SIZE);
+  if (message["date"].success()) strncpy(this->date, message["date"], DATE_SIZE);
+  if (message["sms"].success()) strncpy(this->sms, message["sms"], SMS_SIZE);
+}
+//------------------------------------------------------------------------------------------------
+// otras:
+boolean rInstrument::read()
 {
   uint32_t address = 0;
 
   uint8_t cfg_version = 0;
   EEPROM.get(address, cfg_version);
-  address += sizeof(uint8_t);
+  address += sizeof(cfg_version);
 
-  if (cfg_version == CFG_VERSION) {
-    // read float sensitivity:
-    EEPROM.get(address, sensitivity);
-    address += sizeof(float);
+  if (CFG_VERSION != cfg_version) return false;
 
-    // read uint8_t gain:
-    EEPROM.get(address, gain);
-    address += sizeof(uint8_t);
+  // read
+#if 1
+  rInstrument aux;
+  EEPROM.get(address, aux);
 
-    // read uint8_t average:
-    EEPROM.get(address, average);
-    address += sizeof(uint8_t);
+  address += sizeof(aux);
 
-    // read uint32_t tick_time_useg:
-    EEPROM.get(address, tick_time_useg);
-    address += sizeof(uint32_t);
+  this->set(aux);
 
-    // read uint8_t time_type:
-    EEPROM.get(address, time_type);
-    address += sizeof(uint8_t);
+  //memcpy(this, &aux, sizeof(*this));
+#else
+  EEPROM.get(address, (rInstrument &)(*this));
 
-    // read uint32_t time_begin_seg:
-    EEPROM.get(address, time_begin_seg);
-    address += sizeof(uint32_t);
+  this->fixValues();
+#endif
 
-    // read uint32_t time_end_seg:
-    EEPROM.get(address, time_end_seg);
-    address += sizeof(uint32_t);
-
-    // read uint8_t gps:
-    EEPROM.get(address, gps);
-    address += sizeof(uint8_t);
-
-    // read uint16_t trigger_level:
-    EEPROM.get(address, trigger_level);
-    address += sizeof(uint16_t);
-
-    // read uint32_t trigger_time_number:
-    EEPROM.get(address, trigger_time_number);
-    address += sizeof(uint32_t);
-
-    // read uint32_t ppv_send_time:
-    EEPROM.get(address, ppv_send_time);
-    address += sizeof(uint32_t);
-
-    return true;
-  }
-
-  return false;
+  return true;
 }
 
-boolean gcCFG::read()
+boolean rInstrument::write()
 {
   uint32_t address = 0;
-  address += sizeof(uint8_t); // cfg_version
+  EEPROM.write(address++, CFG_VERSION);
 
-  if (file_cfg.open(file_name, O_READ)) {
-    // read float sensitivity:
-    if (file_cfg.read(&sensitivity, sizeof(float)) != sizeof(float)) {
-      log(PSTR("gcCFG:read: sensitivity"));
-      if (!file_cfg.close()) {
-        log(PSTR("gcCFG:read: file close error"));
-        log(file_name);
-      }
-      return readEEPROM();
-    } else {
-      // write float sensitivity:
-      EEPROM.put(address, sensitivity);
-      address += sizeof(float);
-    }
+  // write:
+  EEPROM.put(address, *this);
+  address += sizeof(*this);
 
-    // read uint8_t gain and average:
-    if (file_cfg.read(&gain, sizeof(uint8_t)) != sizeof(uint8_t)) {
-      log(PSTR("gcCFG:read: gain"));
-      if (!file_cfg.close()) {
-        log(PSTR("gcCFG:read: file close error"));
-        log(file_name);
-      }
-      return readEEPROM();
-    } else {
-      average = gain & 0xf;
-      gain = gain >> 4;
-
-      // write uint8_t gain:
-      EEPROM.put(address, gain);
-      address += sizeof(uint8_t);
-
-      // write uint8_t average:
-      EEPROM.put(address, average);
-      address += sizeof(uint8_t);
-    }
-
-    // read uint32_t tick_time_useg:
-    if (file_cfg.read(&tick_time_useg, sizeof(uint32_t)) != sizeof(uint32_t)) {
-      log(PSTR("gcCFG:read: tick_time_useg"));
-      if (!file_cfg.close()) {
-        log(PSTR("gcCFG:read: file close error"));
-        log(file_name);
-      }
-      return readEEPROM();
-    } else {
-      // write uint32_t tick_time_useg:
-      EEPROM.put(address, tick_time_useg);
-      address += sizeof(uint32_t);
-    }
-
-    // read uint8_t time_type:
-    if (file_cfg.read(&time_type, sizeof(uint8_t)) != sizeof(uint8_t)) {
-      log(PSTR("gcCFG:read: time_type"));
-      if (!file_cfg.close()) {
-        log(PSTR("gcCFG:read: file close error"));
-        log(file_name);
-      }
-      return readEEPROM();
-    } else {
-      // write uint8_t time_type:
-      EEPROM.put(address, time_type);
-      address += sizeof(uint8_t);
-    }
-
-    // read uint32_t time_begin_seg:
-    if (file_cfg.read(&time_begin_seg, sizeof(uint32_t)) != sizeof(uint32_t)) {
-      log(PSTR("gcCFG:read: time_begin_seg"));
-      if (!file_cfg.close()) {
-        log(PSTR("gcCFG:read: file close error"));
-        log(file_name);
-      }
-      return readEEPROM();
-    } else {
-      // write uint32_t time_begin_seg:
-      EEPROM.put(address, time_begin_seg);
-      address += sizeof(uint32_t);
-    }
-
-    // read uint32_t time_end_seg:
-    if (file_cfg.read(&time_end_seg, sizeof(uint32_t)) != sizeof(uint32_t)) {
-      log(PSTR("gcCFG:read: time_end_seg"));
-      if (!file_cfg.close()) {
-        log(PSTR("gcCFG:read: file close error"));
-        log(file_name);
-      }
-      return readEEPROM();
-    } else {
-      // write uint32_t time_end_seg:
-      EEPROM.put(address, time_end_seg);
-      address += sizeof(uint32_t);
-    }
-
-    // read gps:
-    if (file_cfg.read(&gps, sizeof(uint8_t)) != sizeof(uint8_t)) {
-      log(PSTR("gcCFG:read: gps"));
-      if (!file_cfg.close()) {
-        log(PSTR("gcCFG:read: file close error"));
-        log(file_name);
-      }
-      return readEEPROM();
-    } else {
-      // write gps:
-      EEPROM.put(address, gps);
-      address += sizeof(uint8_t);
-    }
-
-    // read uint16_t trigger_level:
-    if (file_cfg.read(&trigger_level, sizeof(uint16_t)) != sizeof(uint16_t)) {
-      log(PSTR("gcCFG:read: trigger_level"));
-      if (!file_cfg.close()) {
-        log(PSTR("gcCFG:read: file close error"));
-        log(file_name);
-      }
-      return readEEPROM();
-    } else {
-      // write uint16_t trigger_level:
-      EEPROM.put(address, trigger_level);
-      address += sizeof(uint16_t);
-    }
-
-    // read uint32_t trigger_time_number:
-    if (file_cfg.read(&trigger_time_number, sizeof(uint32_t)) != sizeof(uint32_t)) {
-      log(PSTR("gcCFG:read: trigger_time_number"));
-      if (!file_cfg.close()) {
-        log(PSTR("gcCFG:read: file close error"));
-        log(file_name);
-      }
-      return readEEPROM();
-    } else {
-      // write uint32_t trigger_time_number:
-      EEPROM.put(address, trigger_time_number);
-      address += sizeof(uint32_t);
-    }
-
-    // read uint32_t ppv_send_time:
-    if (file_cfg.read(&ppv_send_time, sizeof(uint32_t)) != sizeof(uint32_t)) {
-      log(PSTR("gcCFG:read: ppv_send_time"));
-      if (!file_cfg.close()) {
-        log(PSTR("gcCFG:read: file close error"));
-        log(file_name);
-      }
-      return readEEPROM();
-    } else {
-      // write uint32_t ppv_send_time:
-      EEPROM.put(address, ppv_send_time);
-      address += sizeof(uint32_t);
-    }
-
-    if (!file_cfg.close()) {
-      log(PSTR("gcCFG:read: file close error"));
-      log(file_name);
-      return readEEPROM();
-    }
-
-    file_cfg.timestamp(T_ACCESS, year(), month(), day(), hour(), minute(), second());
-  } else {
-    log(PSTR("gcCFG:read: file open error"));
-    log(file_name);
-
-    return readEEPROM();
-  }
-
-  return writeEEPROM();
+  return true;
 }
 
-void gcCFG::print()
+void rInstrument::show()
 {
-  Serial.print(F("file_name:")); Serial.println(file_name);
-  Serial.print(F("sensitivity:")); Serial.println(sensitivity);
-  Serial.print(F("gain:")); Serial.println(gain);
-  Serial.print(F("average:")); Serial.println(average);
-  Serial.print(F("tick_time_useg:")); Serial.println(tick_time_useg);
-  Serial.print(F("time_type:")); Serial.println(time_type);
-  Serial.print(F("time_begin_seg:")); Serial.println(time_begin_seg);
-  Serial.print(F("time_end_seg:")); Serial.println(time_end_seg);
-  Serial.print(F("gps:")); Serial.println(gps);
-  Serial.print(F("trigger_level:")); Serial.println(trigger_level);
-  Serial.print(F("trigger_time_number:")); Serial.println(trigger_time_number);
-  Serial.print(F("ppv_send_time:")); Serial.println(ppv_send_time);
+  Serial.print(F("version:")); Serial.println(CFG_VERSION);
+  Serial.print(F("sname:")); Serial.println(s.getName());
+  Serial.print(F("cname:")); Serial.println(c.getName());
+
+  Serial.print(F("sensitivity:")); Serial.println(s.getSensitivity());
+  Serial.print(F("gain:")); Serial.println(c.getGain());
+  Serial.print(F("average:")); Serial.println(c.getHardwareAverage());
+  Serial.print(F("tick_time:")); Serial.println(c.getTickTime());
+  Serial.print(F("time_type:")); Serial.println(c.getTimeType());
+  Serial.print(F("time_begin:")); Serial.println(c.getTimeBegin());
+  Serial.print(F("time_end:")); Serial.println(c.getTimeEnd());
+  Serial.print(F("gprs:")); Serial.println(getGprs());
+  Serial.print(F("gps:")); Serial.println(getGps());
+  Serial.print(F("trigger_level:")); Serial.println(c.getTriggerLevel());
+  Serial.print(F("trigger_time:")); Serial.println(c.getTriggerTime());
+  Serial.print(F("send_trigger_time:")); Serial.println(c.getSendTriggerTime());
+  Serial.print(F("time_zone_offset:")); Serial.println(getTimeZoneOffset());
   Serial.print(F("F_BUS:")); Serial.println(F_BUS);
   Serial.println();
+}
+
+void rInstrument::show(uint8_t* const& buffer, size_t const& buffer_size)
+{
+  Serial.println();
+  Serial.print(F("version:")); Serial.println(CFG_VERSION);
+
+  s.show(buffer, buffer_size);
+  c.show(buffer, buffer_size);
+
+  StaticSharedJsonBuffer jsonBuffer(buffer, buffer_size);
+  JsonObject& root = jsonBuffer.createObject();
+  builtJson(root, false);
+  root.prettyPrintTo(Serial);
+  Serial.println();
+  Serial.print(F("F_BUS:")); Serial.println(F_BUS);
 }
